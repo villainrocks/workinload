@@ -1,5 +1,5 @@
 /* This code fixed By Tg:@ImxCodex */
-import puppeteer from 'puppeteer-core';
+import puppeteer from 'puppeteer';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
@@ -22,7 +22,7 @@ class ReceiptGeneratorService {
       try {
         this.browser = await puppeteer.launch({
           headless: true,
-          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/home/runner/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome',
+          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
