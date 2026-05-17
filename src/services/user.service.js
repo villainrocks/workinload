@@ -16,6 +16,10 @@ export const userService = {
     const response = await api.delete(`${API_URL}/users/${id}`);
     return response;
   },
+  updatePermissions: async (id, permissions) => {
+    const response = await api.put(`${API_URL}/users/${id}/permissions`, { permissions });
+    return response;
+  },
   getStats: async () => {
     const response = await api.get(`${API_URL}/stats`);
     return response;

@@ -60,6 +60,17 @@ router.post('/users', asyncHandler(async (req, res) => {
   res.json({ success: true, data: safeUser });
 }));
 
+router.put('/users/:id/permissions', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { permissions } = req.body;
+  if (!permissions || typeof permissions !== 'object') {
+    throw AppError.badRequest('Permissions object is required', 'INVALID_PERMISSIONS');
+  }
+  const updated = await stateStoreService.updatePermissions(id, permissions);
+  const { password: _, ...safeUser } = updated;
+  res.json({ success: true, data: safeUser });
+}));
+
 router.delete('/users/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (id === req.user.id) {

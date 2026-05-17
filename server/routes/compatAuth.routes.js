@@ -8,6 +8,10 @@ import { logger } from '../utils/logger.js';
 
 const router = Router();
 
+const DEFAULT_PERMS = (role) => role === 'admin'
+  ? { can_generate: true, can_broadcast: true, can_manage_accounts: true, can_view_logs: true }
+  : { can_generate: true, can_broadcast: true, can_manage_accounts: true, can_view_logs: false };
+
 router.post('/login', asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   const admin = await stateStoreService.verifyAdminCredentials(email, password);
@@ -28,6 +32,7 @@ router.post('/login', asyncHandler(async (req, res) => {
       username: admin.username,
       email: admin.email,
       role: admin.role,
+      permissions: { ...DEFAULT_PERMS(admin.role), ...(admin.permissions || {}) },
     },
   });
 }));
@@ -45,6 +50,7 @@ router.get('/me', authenticateCompat, asyncHandler(async (req, res) => {
       username: req.user.username,
       email: req.user.email,
       role: req.user.role,
+      permissions: req.user.permissions,
     },
   });
 }));

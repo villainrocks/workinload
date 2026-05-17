@@ -49,6 +49,23 @@ class StateStoreService {
     }
   }
 
+  getDefaultPermissions(role) {
+    if (role === 'admin') {
+      return {
+        can_generate: true,
+        can_broadcast: true,
+        can_manage_accounts: true,
+        can_view_logs: true,
+      };
+    }
+    return {
+      can_generate: true,
+      can_broadcast: true,
+      can_manage_accounts: true,
+      can_view_logs: false,
+    };
+  }
+
   async createAdmin({ username, email, password, role = 'user' }) {
     if (!username || !email || !password) {
       throw AppError.badRequest('Username, email, and password are required');
@@ -63,17 +80,31 @@ class StateStoreService {
       throw AppError.badRequest('A user with that username or email already exists', 'USER_EXISTS');
     }
 
+    const resolvedRole = role === 'admin' ? 'admin' : 'user';
     const admin = {
       id: randomUUID(),
       username: normalizedUsername,
       email: normalizedEmail,
       password: hashPassword(password),
-      role: role === 'admin' ? 'admin' : 'user',
+      role: resolvedRole,
+      permissions: this.getDefaultPermissions(resolvedRole),
       is_active: true,
       created_at: new Date().toISOString(),
     };
     await supabaseService.upsert('admins', admin);
     return admin;
+  }
+
+  async updatePermissions(id, permissions) {
+    if (DEFAULT_ADMIN && id === DEFAULT_ADMIN.id) {
+      throw AppError.badRequest('Cannot modify bootstrap admin permissions', 'BOOTSTRAP_ADMIN_PROTECTED');
+    }
+    const admin = await this.getAdminById(id);
+    if (!admin) throw AppError.notFound('User not found', 'USER_NOT_FOUND');
+
+    const updated = { ...admin, permissions: { ...this.getDefaultPermissions(admin.role), ...permissions } };
+    await supabaseService.upsert('admins', updated);
+    return updated;
   }
 
   async deleteAdmin(id) {

@@ -82,6 +82,12 @@ export const AuthProvider = ({ children }) => {
 
   const clearError = useCallback(() => setAuthError(null), []);
 
+  const hasPermission = useCallback((permission) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    return !!user.permissions?.[permission];
+  }, [user]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -92,6 +98,7 @@ export const AuthProvider = ({ children }) => {
         login,
         logout,
         clearError,
+        hasPermission,
       }}
     >
       {children}

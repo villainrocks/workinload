@@ -24,11 +24,17 @@ export const authenticateCompat = async (req, res, next) => {
       throw new AppError('User account is inactive', 403, 'USER_INACTIVE');
     }
 
+    const role = currentUser.role || decoded.role || 'user';
+    const defaultPerms = role === 'admin'
+      ? { can_generate: true, can_broadcast: true, can_manage_accounts: true, can_view_logs: true }
+      : { can_generate: true, can_broadcast: true, can_manage_accounts: true, can_view_logs: false };
+
     req.user = {
       id: currentUser.id,
       username: currentUser.username,
       email: currentUser.email,
-      role: currentUser.role || decoded.role || 'user',
+      role,
+      permissions: { ...defaultPerms, ...(currentUser.permissions || {}) },
     };
     req.token = token;
     next();
@@ -44,6 +50,17 @@ export const authenticateCompat = async (req, res, next) => {
 export const requireAdminCompat = (req, res, next) => {
   if (!req.user || req.user.role !== 'admin') {
     return next(new AppError('Admin access required', 403, 'ACCESS_DENIED'));
+  }
+  next();
+};
+
+export const requirePermission = (permission) => (req, res, next) => {
+  if (!req.user) {
+    return next(new AppError('Authentication required', 401, 'UNAUTHORIZED'));
+  }
+  if (req.user.role === 'admin') return next();
+  if (!req.user.permissions?.[permission]) {
+    return next(new AppError('You do not have permission to perform this action', 403, 'PERMISSION_DENIED'));
   }
   next();
 };

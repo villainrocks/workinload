@@ -7,6 +7,8 @@ import AdminRoute from './routes/AdminRoute';
 import DashboardLayout from './layouts/DashboardLayout';
 import ErrorBoundary from './components/ErrorBoundary';
 
+import PermissionGate from './components/PermissionGate';
+
 // Pages
 import LoginPage      from './pages/LoginPage';
 import AccountsPage   from './pages/AccountsPage';
@@ -30,14 +32,16 @@ const App = () => (
             {/* Protected — wrapped in dashboard layout */}
             <Route element={<ProtectedRoute />}>
               <Route element={<DashboardLayout />}>
-                <Route path="/dashboard" element={<GeneratorPage />} />
-                <Route path="/drop"      element={<NumberDropPage />} />
-                <Route path="/accounts"  element={<AccountsPage />}  />
-                <Route path="/about"     element={<AboutPage />}     />
-                
+                <Route path="/dashboard" element={<PermissionGate permission="can_generate"><GeneratorPage /></PermissionGate>} />
+                <Route path="/drop"      element={<PermissionGate permission="can_broadcast"><NumberDropPage /></PermissionGate>} />
+                <Route path="/accounts"  element={<PermissionGate permission="can_manage_accounts"><AccountsPage /></PermissionGate>} />
+                <Route path="/about"     element={<AboutPage />} />
+
+                {/* Permission-gated */}
+                <Route path="/logs" element={<PermissionGate permission="can_view_logs"><ActivityLogPage /></PermissionGate>} />
+
                 {/* Admin Only */}
                 <Route element={<AdminRoute />}>
-                  <Route path="/logs" element={<ActivityLogPage />} />
                   <Route path="/users" element={<UsersPage />} />
                 </Route>
               </Route>
