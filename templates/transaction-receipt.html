@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<!-- This code fixed By Tg:@ImxCodex -->
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Pacifico&family=Dancing+Script:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --blue: #58b7de;
+      --green: #12c766;
+      --dark: #222326;
+      --mark-blue: #1f9fd3;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    body {
+      color: var(--dark);
+      font-family: "Montserrat", "Poppins", "Trebuchet MS", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      background-color: {{bgFill}};
+      padding-top: {{topPadding}};
+      padding-bottom: {{bottomPadding}};
+      padding-left: {{sidePadding}};
+      padding-right: {{sidePadding}};
+    }
+
+    .receipt {
+      width: 720px;
+      height: 1280px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 33px;
+      transform: scale(var(--receipt-scale, 1));
+      transform-origin: top center;
+      border-radius: {{cornerRadius}};
+      box-shadow: {{showShadow}};
+    }
+
+    .logo {
+      width: 100%;
+      height: 190px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 25px;
+      background: #fff;
+    }
+
+    .brand-logo {
+      height: 150px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .success-icon {
+      width: 191px;
+      height: 191px;
+      border: 12px solid var(--green);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 40px;
+    }
+
+    .success-icon svg {
+      width: 104px;
+      height: 104px;
+      stroke: var(--green);
+      stroke-width: 9;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transform: translate(2px, 2px);
+    }
+
+    .title {
+      color: var(--green);
+      font-size: 40px;
+      font-weight: 700;
+      line-height: 1.08;
+      text-align: center;
+      margin-bottom: 45px;
+      max-width: 590px;
+    }
+
+    .panel {
+      width: 682px;
+      min-height: 489px;
+      background: linear-gradient(180deg, #61b6df 0%, #58b2db 100%);
+      border-radius: 54px;
+      position: relative;
+      overflow: hidden;
+      padding: 42px 48px 38px 48px;
+      color: #fff;
+    }
+
+
+
+    .watermark {
+      position: absolute;
+      width: 460px;
+      height: 460px;
+      left: 111px;
+      top: 15px;
+      opacity: .10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .watermark-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+
+
+    .rows {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 34px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 260px 25px 1fr;
+      align-items: baseline;
+      min-height: 38px;
+      font-size: 28px;
+      line-height: 1.1;
+      letter-spacing: 0.2px;
+    }
+
+    .label {
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+    }
+
+    .colon {
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .value {
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="receipt">
+    <section class="logo" aria-label="mBOB Mobile Banking">
+      <img src="{{logo}}" alt="mBOB Logo" class="brand-logo">
+    </section>
+
+    <section class="success-icon" aria-hidden="true">
+      <svg viewBox="0 0 100 100">
+        <path d="M28 51 L44 67 L73 34"></path>
+      </svg>
+    </section>
+
+    <h1 class="title">Fund Transfer to BoB<br>Successful</h1>
+
+    <section class="panel">
+      <div class="watermark" aria-hidden="true">
+        <img src="{{logoO}}" alt="" class="watermark-img">
+      </div>
+      <div class="rows">
+        <div class="row">
+          <div class="label">Amount</div>
+          <div class="colon">:</div>
+          <div class="value">Nu. {{amount}}</div>
+        </div>
+        <div class="row">
+          <div class="label">Jrnl. No</div>
+          <div class="colon">:</div>
+          <div class="value" id="journalNo">{{journalNo}}</div>
+        </div>
+        <div class="row">
+          <div class="label">From Account</div>
+          <div class="colon">:</div>
+          <div class="value">{{fromAccount}}</div>
+        </div>
+        <div class="row">
+          <div class="label">To Account</div>
+          <div class="colon">:</div>
+          <div class="value">{{toAccount}}</div>
+        </div>
+        <div class="row">
+          <div class="label">Purpose</div>
+          <div class="colon">:</div>
+          <div class="value">{{purpose}}</div>
+        </div>
+        <div class="row">
+          <div class="label">Date</div>
+          <div class="colon">:</div>
+          <div class="value">{{date}}</div>
+        </div>
+        <div class="row">
+          <div class="label">Time</div>
+          <div class="colon">:</div>
+          <div class="value">{{time}}</div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const setReceiptScale = () => {
+      const availableWidth = window.innerWidth - (parseFloat(getComputedStyle(document.body).paddingLeft) + parseFloat(getComputedStyle(document.body).paddingRight));
+      document.documentElement.style.setProperty('--receipt-scale', String(availableWidth / 720));
+    };
+
+    const formatJournalNo = () => {
+      const el = document.getElementById('journalNo');
+      if (el) {
+        const val = el.textContent.trim();
+        if (val.length > 3 && !val.includes('-')) {
+          el.textContent = val.slice(0, 3) + '-' + val.slice(3);
+        }
+      }
+    };
+
+    setReceiptScale();
+    formatJournalNo();
+    window.addEventListener('resize', setReceiptScale);
+  </script>
+</body>
+
+</html>

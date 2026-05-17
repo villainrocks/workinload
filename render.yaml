@@ -1,0 +1,26 @@
+# This code fixed By Tg:@ImxCodex
+services:
+  - type: web
+    name: nexus-panel
+    env: docker
+    plan: starter # Recommended 2GB RAM for Puppeteer/Chrome
+    region: ohio
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 3002
+      - key: NODE_ENV
+        value: production
+      # These should be set in the Render Dashboard for security
+      - key: TG_API_ID
+        sync: false
+      - key: TG_API_HASH
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/google-chrome-stable

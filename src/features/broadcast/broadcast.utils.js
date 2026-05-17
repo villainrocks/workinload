@@ -1,0 +1,226 @@
+/* This code fixed By Tg:@ImxCodex */
+const DEFAULT_JOURNAL_PREFIX = '78464649';
+
+const purposeWords = [
+  'Transfer', 'Payment', 'Lunch', 'Coffee', 'Rent', 'Bill', 'Gift', 'Services',
+  'Project', 'Freelance', 'Shopping', 'Grocery', 'Investment', 'Savings',
+  'Bonus', 'Salary', 'Refund', 'Credit', 'Debit', 'Fund', 'Capital', 'Asset',
+  'Expense', 'Budget', 'Balance', 'Transaction', 'Invoice', 'Receipt',
+  'Dinner', 'Snacks', 'Travel', 'Medical', 'Education', 'Utility',
+  'Subscription', 'Insurance', 'Donation', 'Repayment',
+];
+
+const mobileResolutions = [
+  { width: 1170, height: 2532, label: 'iPhone 13' },
+  { width: 1284, height: 2778, label: 'iPhone 13 Pro Max' },
+  { width: 1125, height: 2436, label: 'iPhone X/XS' },
+  { width: 1242, height: 2688, label: 'iPhone XS Max' },
+  { width: 1080, height: 2400, label: 'Samsung S22/S23' },
+  { width: 1440, height: 3088, label: 'Samsung S23 Ultra' },
+  { width: 1080, height: 2340, label: 'Samsung S21' },
+  { width: 1440, height: 3200, label: 'Xiaomi 13 Pro' },
+  { width: 1080, height: 2400, label: 'Google Pixel 7' },
+  { width: 1440, height: 3120, label: 'Google Pixel 7 Pro' },
+  { width: 1080, height: 2400, label: 'OnePlus 11' },
+  { width: 720, height: 1600, label: 'Budget Android' },
+];
+
+const bgFills = ['#ffffff', '#fafafa', '#fdfdfd'];
+const cornerRadii = ['12px', '16px', '20px', '24px'];
+const RECEIPT_TIME_ZONE = 'Asia/Thimphu';
+
+const fixedDelayOptions = Array.from({ length: 30 }, (_, i) => {
+  const totalSecs = (i + 1) * 10;
+  return {
+    value: `${totalSecs}-${totalSecs}`,
+    label: `+${formatDelay(totalSecs)}`,
+  };
+});
+
+export const receiptScheduleOptions = [
+  { value: '0-0', label: 'Receipt time now' },
+  { value: '10-30', label: 'Receipt +10-30 sec' },
+  { value: '30-60', label: 'Receipt +30-60 sec' },
+  { value: '60-120', label: 'Receipt +1-2 min' },
+  ...fixedDelayOptions,
+];
+
+export const bookingDelayOptions = [
+  { value: '0-0', label: 'Booking no offset' },
+  { value: '10-20', label: 'Booking +10-20 sec' },
+  { value: '20-40', label: 'Booking +20-40 sec' },
+  { value: '60-120', label: 'Booking +1-2 min' },
+  ...fixedDelayOptions,
+];
+
+export const delayOptions = receiptScheduleOptions;
+
+export const randomDigits = (length) => (
+  Array.from({ length }, () => Math.floor(Math.random() * 10)).join('')
+);
+
+export const normalizeAccountInput = (value) => String(value || '').replace(/\D/g, '');
+
+export const buildJournalNo = (value = DEFAULT_JOURNAL_PREFIX) => {
+  const digits = normalizeAccountInput(value).slice(0, 12);
+  const prefix = digits || DEFAULT_JOURNAL_PREFIX;
+
+  return prefix.length >= 12 ? prefix : `${prefix}${randomDigits(12 - prefix.length)}`;
+};
+
+export const buildRandomBookingNo = () => {
+  const digits = ['1', '2', '3', '4', '5', '6'];
+  const first = digits[Math.floor(Math.random() * digits.length)];
+  const second = digits.filter((digit) => digit !== first)[Math.floor(Math.random() * 5)];
+  const patterns = [
+    () => first + second + first + second,
+    () => first + second + second + first,
+    () => first + second + first + first,
+    () => first + first + second + second,
+    () => first + second + first + second + first + second,
+    () => first + first + second + second + first + first,
+    () => first + second + second + second + first + second,
+  ];
+
+  return patterns[Math.floor(Math.random() * patterns.length)]();
+};
+
+export const buildRandomPurpose = () => {
+  const shortWords = ['faaa', 'ba', 'za', 'foo', 'bar', 'test', 'okay', 'done', 'set', 'tx', 'pay', 'abc'];
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  const styles = [
+    () => shortWords[Math.floor(Math.random() * shortWords.length)],
+    () => randomLetters(Math.floor(Math.random() * 2) + 2, alphabet),
+    () => purposeWords[Math.floor(Math.random() * purposeWords.length)],
+  ];
+  const count = Math.floor(Math.random() * 2) + 1;
+
+  return Array.from({ length: count }, () => (
+    styles[Math.floor(Math.random() * styles.length)]()
+  )).join(' ');
+};
+
+export const getRandomResolution = () => (
+  mobileResolutions[Math.floor(Math.random() * mobileResolutions.length)]
+);
+
+export const getRandomFrame = () => ({
+  topPadding: `${Math.floor(Math.random() * 15) + 15}px`,
+  bottomPadding: `${Math.floor(Math.random() * 15) + 15}px`,
+  sidePadding: `${Math.floor(Math.random() * 8) + 8}px`,
+  bgFill: bgFills[Math.floor(Math.random() * bgFills.length)],
+  cornerRadius: cornerRadii[Math.floor(Math.random() * cornerRadii.length)],
+  showShadow: 'none',
+});
+
+const formatReceiptDateTime = (date) => ({
+  date: date.toLocaleDateString('en-GB', {
+    timeZone: RECEIPT_TIME_ZONE,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }),
+  time: date.toLocaleTimeString('en-US', {
+    timeZone: RECEIPT_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }),
+});
+
+export const getBhutanDateTime = (offsetMinutes = 0, baseMs = Date.now()) => {
+  const date = new Date(baseMs + Math.max(0, Number(offsetMinutes) || 0) * 60000);
+  return formatReceiptDateTime(date);
+};
+
+export const getBhutanDateTimeAfterSeconds = (offsetSeconds = 0, baseMs = Date.now()) => {
+  const safeSeconds = Math.max(0, Number(offsetSeconds) || 0);
+  return formatReceiptDateTime(new Date(baseMs + safeSeconds * 1000));
+};
+
+export const parseDelayRange = (rangeStr, fallback = '0-0') => {
+  const source = String(rangeStr || fallback);
+  const [rawMin, rawMax = rawMin] = source.split('-').map(Number);
+  const min = Number.isFinite(rawMin) ? Math.max(0, Math.floor(rawMin)) : 0;
+  const max = Number.isFinite(rawMax) ? Math.max(min, Math.floor(rawMax)) : min;
+
+  return { min, max, value: `${min}-${max}` };
+};
+
+export const getRandomDelay = (rangeStr) => {
+  const { min, max } = parseDelayRange(rangeStr);
+  if (min === 0 && max === 0) return 0;
+
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
+export const buildSchedulePlan = ({
+  receiptDelayRange = '0-0',
+  bookingDelayRange = '0-0',
+  hasBooking = false,
+} = {}) => {
+  const receiptDelaySeconds = getRandomDelay(receiptDelayRange);
+  const bookingDelaySeconds = hasBooking ? getRandomDelay(bookingDelayRange) : 0;
+  const bookingTotalDelaySeconds = hasBooking ? bookingDelaySeconds : 0;
+
+  const displayDelaySeconds = Math.max(receiptDelaySeconds, bookingTotalDelaySeconds);
+
+  return {
+    receiptDelaySeconds,
+    bookingDelaySeconds,
+    bookingTotalDelaySeconds,
+    displayDelaySeconds,
+    isScheduled: receiptDelaySeconds > 0,
+    status: receiptDelaySeconds > 0 ? 'scheduling' : 'sending',
+    activeLabel: hasBooking
+      ? `${receiptDelaySeconds > 0 ? 'Scheduling' : 'Sending'} receipt ${receiptDelaySeconds > 0 ? `+${formatDelay(receiptDelaySeconds)}` : 'now'}, booking ${
+        bookingDelaySeconds > 0 ? `+${formatDelay(bookingDelaySeconds)}` : 'no offset'
+      }`
+      : receiptDelaySeconds > 0
+        ? `Scheduling receipt +${formatDelay(receiptDelaySeconds)}`
+        : 'Sending receipt now',
+    doneLabel: hasBooking
+      ? `${receiptDelaySeconds > 0 ? 'Scheduled' : 'Sent'} receipt ${receiptDelaySeconds > 0 ? `+${formatDelay(receiptDelaySeconds)}` : 'now'}, booking ${
+        bookingDelaySeconds > 0 ? `+${formatDelay(bookingDelaySeconds)}` : 'same time'
+      }`
+      : receiptDelaySeconds > 0
+        ? `Receipt scheduled +${formatDelay(receiptDelaySeconds)}`
+        : 'Receipt sent',
+  };
+};
+
+export const getAccountDisplay = (account = {}) => {
+  if (account.first_name) return account.first_name;
+  return account.username ? `@${account.username}` : account.phone || String(account.id || 'Unknown');
+};
+
+export const formatReceiptPayload = (data) => ({
+  ...data,
+  journalNo: buildJournalNo(data.journalNo),
+  fromAccount: normalizeAccountInput(data.fromAccount) || data.fromAccount,
+  toAccount: normalizeAccountInput(data.toAccount) || data.toAccount,
+});
+
+export const assertBroadcastSucceeded = (response) => {
+  const payload = response?.data?.data || response?.data || response;
+  const summary = payload?.summary;
+  if (!summary?.failed) return payload;
+
+  const failed = payload?.data?.find((item) => item.status === 'failed');
+  const phase = failed?.phase ? `${failed.phase}: ` : '';
+  throw new Error(`${phase}${failed?.error || 'Telegram rejected one or more messages.'}`);
+};
+
+const randomLetters = (length, alphabet) => (
+  Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
+);
+
+function formatDelay(totalSeconds) {
+  const seconds = Math.max(0, Number(totalSeconds) || 0);
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+
+  if (mins <= 0) return `${secs} sec`;
+  return secs > 0 ? `${mins} min ${secs} sec` : `${mins} min`;
+}
