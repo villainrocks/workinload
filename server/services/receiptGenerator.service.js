@@ -1,5 +1,5 @@
 /* This code fixed By Tg:@ImxCodex */
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
@@ -20,14 +20,19 @@ class ReceiptGeneratorService {
     if (!this.browser || !this.browser.connected) {
       console.log('Launching new browser instance...');
       try {
+        const executablePath =
+          process.env.PUPPETEER_EXECUTABLE_PATH ||
+          '/nix/store/bvqn8vwhfxary4j5ydb9l757jacbql96-google-chrome-138.0.7204.92/bin/google-chrome-stable';
+
         this.browser = await puppeteer.launch({
           headless: true,
-          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+          executablePath,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
+            '--disable-extensions',
           ],
         });
         console.log('Browser launched successfully');

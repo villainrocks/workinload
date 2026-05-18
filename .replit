@@ -47,5 +47,5 @@ externalPort = 3001
 
 [deployment]
 deploymentTarget = "vm"
-run = ["bash", "-c", "npx puppeteer browsers install chrome && PORT=5000 node server/server.js"]
+run = ["bash", "-c", "PORT=5000 node server/server.js"]
 build = ["bash", "-c", "npm install && npm run build"]
