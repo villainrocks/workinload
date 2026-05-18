@@ -289,7 +289,10 @@ const NumberDropPage = () => {
     }
   };
 
-  const getAccountDisplay = (acc) => acc.username ? `@${acc.username}` : acc.phone;
+  const getAccountDisplay = (acc) => {
+    const full = [acc.first_name, acc.last_name].filter(Boolean).join(' ');
+    return full || (acc.username ? `@${acc.username}` : acc.phone);
+  };
 
   if (loading) {
     return <div className="p-8 text-center text-slate-400">Loading accounts...</div>;

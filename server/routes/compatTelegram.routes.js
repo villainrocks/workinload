@@ -6,6 +6,7 @@ import { authenticateCompat } from '../middleware/compatAuth.js';
 import { telegramSessionService } from '../services/telegramSession.service.js';
 import { stateStoreService } from '../services/stateStore.service.js';
 import { mediaStoreService } from '../services/mediaStore.service.js';
+import { dbService } from '../services/db.service.js';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 
@@ -365,6 +366,24 @@ router.put('/accounts/:id', asyncHandler(async (req, res) => {
 
   if (!account) {
     throw AppError.notFound('Account not found');
+  }
+
+  // When a bank account number is saved via Number Drop config,
+  // auto-sync it as the fromAccount default in account_configs
+  if (bank_account_number !== undefined) {
+    try {
+      const existing = await dbService.getAccountConfig(req.user.id, req.params.id);
+      const existingTargets = existing?.targets || [];
+      const existingDefaults = existing?.defaults || {};
+      await dbService.saveAccountConfig(
+        req.user.id,
+        req.params.id,
+        existingTargets,
+        { ...existingDefaults, fromAccount: bank_account_number }
+      );
+    } catch (err) {
+      logger.warn('Could not sync fromAccount to account_configs', { error: err.message });
+    }
   }
 
   res.json({ success: true, data: account });
