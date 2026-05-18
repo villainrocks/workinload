@@ -80,12 +80,34 @@ const GeneratorPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const timerRef = useRef(null);
   const bookingTimerRef = useRef(null);
+  // Pending broadcast-wait timers: Map<timeoutId, resolveFn>. Used so we can
+  // both clearTimeout AND resolve the waiting Promise on cancel/unmount, so
+  // Promise.allSettled never hangs.
+  const broadcastWaitersRef = useRef(new Map());
+  const broadcastCancelledRef = useRef(false);
+  const mountedRef = useRef(true);
+  // Monotonic run id so async work from a stale broadcast run can never
+  // touch state belonging to a newer run.
+  const broadcastRunIdRef = useRef(0);
+
+  const clearAllBroadcastTimers = () => {
+    broadcastWaitersRef.current.forEach((resolve, id) => {
+      clearTimeout(id);
+      // Resolve as cancelled so awaiters can unblock and exit cleanly.
+      try { resolve(false); } catch { /* ignore */ }
+    });
+    broadcastWaitersRef.current.clear();
+  };
 
   // Cleanup timer on unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      broadcastCancelledRef.current = true;
       clearTimerRef(timerRef);
       clearTimerRef(bookingTimerRef);
+      clearAllBroadcastTimers();
     };
   }, []);
 
@@ -177,6 +199,11 @@ const GeneratorPage = () => {
   const cancelSending = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (bookingTimerRef.current) clearTimeout(bookingTimerRef.current);
+    broadcastCancelledRef.current = true;
+    // Bump runId so any pending async work from this run becomes stale
+    // and cannot touch state, emit toasts, or flip the active flag.
+    broadcastRunIdRef.current += 1;
+    clearAllBroadcastTimers();
     setBroadcasting(false);
     setSendingState({ active: false, status: '' });
     toast.info('Sending process cancelled');
@@ -871,11 +898,21 @@ const GeneratorPage = () => {
 
     setShowReview(false);
     setBroadcasting(true);
+    // Cancel any leftover work from a previous run before starting fresh.
+    broadcastCancelledRef.current = true;
+    clearAllBroadcastTimers();
+    broadcastCancelledRef.current = false;
+    const runId = ++broadcastRunIdRef.current;
+    const isCurrentRun = () => mountedRef.current
+      && !broadcastCancelledRef.current
+      && broadcastRunIdRef.current === runId;
     setSendingState({ active: true, status: 'Scheduling Telegram account flows...', jobs: {} });
 
     try {
       const sendClickedAtMs = Date.now();
       await saveCurrentConfigs();
+      // Stale-run guard: bail if cancelled or superseded while saving configs.
+      if (!isCurrentRun()) return;
       const timingPlan = buildBroadcastTimingPlan(targets, sendClickedAtMs);
 
       const initialJobsState = {};
@@ -886,6 +923,7 @@ const GeneratorPage = () => {
           accountName: account ? getAccountDisplay(account) : t.accountId 
         };
       });
+      if (!isCurrentRun()) return;
       setSendingState(prev => ({ ...prev, jobs: initialJobsState }));
 
       const broadcastPromises = targets.map(async (target) => {
@@ -894,11 +932,23 @@ const GeneratorPage = () => {
         const accountName = getAccountDisplay(account || { id: accountId });
 
         const updateJob = (updates) => {
+          if (!isCurrentRun()) return;
           setSendingState(prev => ({
             ...prev,
             jobs: { ...prev.jobs, [accountId]: { ...prev.jobs[accountId], ...updates } }
           }));
         };
+
+        // Cancellable wait. Resolves with `true` on natural completion,
+        // `false` if the broadcast was cancelled / component unmounted.
+        // Both clearTimeout AND resolve() run on cancel so awaiters never hang.
+        const cancellableWait = (ms) => new Promise(resolve => {
+          const id = setTimeout(() => {
+            broadcastWaitersRef.current.delete(id);
+            resolve(true);
+          }, ms);
+          broadcastWaitersRef.current.set(id, resolve);
+        });
 
         try {
           updateJob({ status: 'generating' });
@@ -950,11 +1000,40 @@ const GeneratorPage = () => {
           });
           assertBroadcastSucceeded(broadcastResponse);
           
-          updateJob({
-            status: schedulePlan.receiptDelaySeconds > 0 ? 'scheduled' : 'sent',
-            statusLabel: schedulePlan.doneLabel,
-            delay: schedulePlan.displayDelaySeconds,
-          });
+          // Clamp the wait to a safe maximum (24h) to avoid setTimeout
+          // overflow on extreme persisted delay values.
+          const MAX_WAIT_MS = 24 * 60 * 60 * 1000;
+          const rawDelaySec = Math.max(
+            schedulePlan.receiptDelaySeconds || 0,
+            schedulePlan.bookingDelaySeconds || 0
+          );
+          const totalDelayMs = Math.min(Math.max(rawDelaySec, 0) * 1000, MAX_WAIT_MS);
+
+          if (totalDelayMs > 0) {
+            // Mark as scheduled and wait for the actual delivery time before
+            // flipping to 'sent' so the activity card stays visible in the UI.
+            updateJob({
+              status: 'scheduled',
+              statusLabel: schedulePlan.doneLabel,
+              delay: schedulePlan.displayDelaySeconds,
+              deliverAt: Date.now() + totalDelayMs,
+            });
+            const completed = await cancellableWait(totalDelayMs);
+            if (!completed || !isCurrentRun()) {
+              return accountName;
+            }
+            updateJob({
+              status: 'sent',
+              statusLabel: 'Sent to group',
+              delay: schedulePlan.displayDelaySeconds,
+            });
+          } else {
+            updateJob({
+              status: 'sent',
+              statusLabel: 'Sent to group',
+              delay: schedulePlan.displayDelaySeconds,
+            });
+          }
           return accountName;
         } catch (err) {
           updateJob({ status: 'failed', error: err.message });
@@ -962,15 +1041,31 @@ const GeneratorPage = () => {
         }
       });
 
-      setSendingState(prev => ({ ...prev, status: `Scheduling ${targets.length} Telegram account flows...` }));
-      await Promise.all(broadcastPromises);
-      toast.success('Telegram account flows scheduled successfully!');
+      if (isCurrentRun()) {
+        setSendingState(prev => ({ ...prev, status: `Sending receipts to ${targets.length} Telegram account flows...` }));
+      }
+      const results = await Promise.allSettled(broadcastPromises);
+      if (isCurrentRun()) {
+        const failed = results.filter(r => r.status === 'rejected').length;
+        if (failed === 0) {
+          toast.success('All receipts delivered to Telegram groups!');
+        } else if (failed === results.length) {
+          toast.error('All broadcast jobs failed.');
+        } else {
+          toast.error(`${failed} of ${results.length} broadcast jobs failed.`);
+        }
+      }
     } catch (err) {
       console.error('Broadcast failed:', err);
-      toast.error('One or more broadcast jobs failed.');
+      if (isCurrentRun()) {
+        toast.error('Broadcast failed unexpectedly.');
+      }
     } finally {
-      setBroadcasting(false);
-      setSendingState(prev => ({ ...prev, active: false }));
+      // Only the current run is allowed to flip the global UI state off.
+      if (mountedRef.current && broadcastRunIdRef.current === runId) {
+        setBroadcasting(false);
+        setSendingState(prev => ({ ...prev, active: false }));
+      }
     }
   };
 
@@ -1580,17 +1675,20 @@ const GeneratorPage = () => {
                         <span className="text-xs font-bold text-slate-200">{job.accountName}</span>
                         <div className="flex items-center gap-2">
                           <span className={`text-[10px] font-bold uppercase tracking-tighter ${
-                            job.status === 'sent' || job.status === 'scheduled' ? 'text-emerald-400' : 
-                            job.status === 'failed' ? 'text-red-400' : 
+                            job.status === 'sent' ? 'text-emerald-400' :
+                            job.status === 'failed' ? 'text-red-400' :
+                            job.status === 'scheduled' ? 'text-amber-400' :
                             'text-blue-400'
                           }`}>
-                            {job.statusLabel ||
-                             (job.status === 'ready' ? 'Ready' :
-                             job.status === 'generating' ? 'Generating receipt' :
-                             job.status === 'sending' ? 'Sending now' :
-                             job.status === 'scheduling' ? 'Scheduling in Telegram' :
-                             job.status === 'scheduled' ? 'Scheduled in Telegram' :
-                             job.status)}
+                            {job.status === 'sent' ? 'Sent to group' :
+                             job.status === 'failed' ? (job.error ? `Failed: ${job.error}` : 'Failed') :
+                             (job.statusLabel ||
+                              (job.status === 'ready' ? 'Ready' :
+                              job.status === 'generating' ? 'Generating receipt' :
+                              job.status === 'sending' ? 'Sending now' :
+                              job.status === 'scheduling' ? 'Scheduling in Telegram' :
+                              job.status === 'scheduled' ? 'Waiting to deliver' :
+                              job.status))}
                           </span>
                           {job.status !== 'sent' && job.status !== 'scheduled' && job.status !== 'failed' && (
                             <div className="w-12 h-1 bg-slate-800 rounded-full overflow-hidden">
@@ -1599,10 +1697,12 @@ const GeneratorPage = () => {
                           )}
                         </div>
                       </div>
-                      {job.status === 'sent' || job.status === 'scheduled' ? (
+                      {job.status === 'sent' ? (
                         <div className="bg-emerald-500/20 p-1.5 rounded-full"><CheckCircle2 size={14} className="text-emerald-400" /></div>
                       ) : job.status === 'failed' ? (
                         <div className="bg-red-500/20 p-1.5 rounded-full"><XCircle size={14} className="text-red-400" /></div>
+                      ) : job.status === 'scheduled' ? (
+                        <div className="bg-amber-500/20 p-1.5 rounded-full"><Clock size={14} className="text-amber-400 animate-pulse" /></div>
                       ) : (
                         <Clock size={14} className="text-slate-500 animate-pulse" />
                       )}
