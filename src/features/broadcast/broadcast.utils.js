@@ -70,16 +70,54 @@ export const buildJournalNo = (value = DEFAULT_JOURNAL_PREFIX) => {
 
 export const buildRandomBookingNo = () => {
   const digits = ['1', '2', '3', '4', '5', '6'];
-  const first = digits[Math.floor(Math.random() * digits.length)];
-  const second = digits.filter((digit) => digit !== first)[Math.floor(Math.random() * 5)];
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  const a = digits[Math.floor(Math.random() * digits.length)];
+  const b = digits.filter((digit) => digit !== a)[Math.floor(Math.random() * 5)];
+  const c = digits[Math.floor(Math.random() * digits.length)];
+  const randLetter = () => alphabet[Math.floor(Math.random() * alphabet.length)];
+  const randLetters = (n) => Array.from({ length: n }, randLetter).join('');
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
   const patterns = [
-    () => first + second + first + second,
-    () => first + second + second + first,
-    () => first + second + first + first,
-    () => first + first + second + second,
-    () => first + second + first + second + first + second,
-    () => first + first + second + second + first + first,
-    () => first + second + second + second + first + second,
+    // 2-digit
+    () => a + b,
+    () => b + a,
+    () => a + a,
+    // 4-digit
+    () => a + b + a + b,
+    () => a + b + b + a,
+    () => a + b + a + a,
+    () => a + a + b + b,
+    () => a + b + b + b,
+    () => a + a + a + b,
+    () => b + a + b + a,
+    () => b + a + a + b,
+    // 5-digit
+    () => a + a + b + b + b,
+    () => a + b + a + b + a,
+    () => b + a + b + b + a,
+    // 6-digit
+    () => a + b + a + b + a + b,
+    () => a + a + b + b + a + a,
+    () => a + b + b + b + a + b,
+    () => a + b + b + a + b + b,
+    () => a + a + b + a + b + b,
+    () => a + b + a + b + b + a,
+    () => b + a + b + a + b + a,
+    () => a + a + a + b + b + b,
+    // Long repeats (10-14 digits)
+    () => (a + b).repeat(5),
+    () => (a + b).repeat(5) + a,
+    () => a.repeat(5) + b + a.repeat(5),
+    () => a.repeat(5) + b + a.repeat(4) + b + a,
+    // Letter + digit mixes (Fgg24zdd, Fff34dd style)
+    () => cap(randLetter()) + randLetters(2) + a + b + randLetters(2),
+    () => cap(randLetter()) + randLetter().repeat(2) + a + b + randLetters(2),
+    // Punctuated / decorated
+    () => a + b + '!',
+    () => '""' + a + b + a + b + a + b + '""',
+    // Math-style (not real math — random digits)
+    () => `${a}x${b}=${c}`,
   ];
 
   return patterns[Math.floor(Math.random() * patterns.length)]();
