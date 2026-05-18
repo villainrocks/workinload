@@ -70,6 +70,22 @@ const GeneratorPage = () => {
   const [sendingState, setSendingState] = useState({ active: false, status: '' });
   const [collapsedAccounts, setCollapsedAccounts] = useState(new Set());
   const [amountsBySource, setAmountsBySource] = useState({});
+  // 'manual' | 'random' — controls how the amount editor renders/serializes
+  // for each account. Stored shape in amountsBySource is still a plain string:
+  //   manual  → "5000" / "5,000.00"
+  //   random  → "390 to 400" (parsed by pickAmountFromInput at send time)
+  const [amountModesBySource, setAmountModesBySource] = useState({});
+  // UI source of truth for the random mode's min/max inputs. Kept separate
+  // from amountsBySource (which holds the serialized string used at send time)
+  // so a user can type into one side while the other is still empty without
+  // losing their input or being coerced into a degenerate "X to X" range.
+  // Shape: { [accountId]: { min: string, max: string } }
+  const [amountRangeBySource, setAmountRangeBySource] = useState({});
+  // Same as above, but for the default editor (no account selected).
+  const [amountRangeDefault, setAmountRangeDefault] = useState({ min: '', max: '' });
+  // Counter used to force the "sample random pick" preview to regenerate
+  // when the user clicks the dice button.
+  const [amountPreviewTick, setAmountPreviewTick] = useState(0);
   const [fromAccountsBySource, setFromAccountsBySource] = useState({});
   const [datesBySource, setDatesBySource] = useState({});
   const [timesBySource, setTimesBySource] = useState({});
@@ -81,6 +97,25 @@ const GeneratorPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const timerRef = useRef(null);
   const bookingTimerRef = useRef(null);
+  // Keyed autosave debouncers: one timer per (scope + field) so a rapid edit
+  // on account A's amount cannot cancel a pending save on account B's amount
+  // or on another field. Key format: "account:<id>:<field>" or "global:<field>".
+  const pendingTimersRef = useRef(new Map());
+
+  const scheduleSave = (key, fn, delay = 1000) => {
+    const existing = pendingTimersRef.current.get(key);
+    if (existing) clearTimeout(existing);
+    const id = setTimeout(() => {
+      pendingTimersRef.current.delete(key);
+      try { fn(); } catch (e) { console.error('Auto-save handler failed', e); }
+    }, delay);
+    pendingTimersRef.current.set(key, id);
+  };
+
+  const clearAllPendingSaves = () => {
+    pendingTimersRef.current.forEach((id) => clearTimeout(id));
+    pendingTimersRef.current.clear();
+  };
   // Pending broadcast-wait timers: Map<timeoutId, resolveFn>. Used so we can
   // both clearTimeout AND resolve the waiting Promise on cancel/unmount, so
   // Promise.allSettled never hangs.
@@ -108,6 +143,7 @@ const GeneratorPage = () => {
       broadcastCancelledRef.current = true;
       clearTimerRef(timerRef);
       clearTimerRef(bookingTimerRef);
+      clearAllPendingSaves();
       clearAllBroadcastTimers();
     };
   }, []);
@@ -144,15 +180,22 @@ const GeneratorPage = () => {
     try {
       const { data } = await configService.getAccountConfig('global');
       if (data && data.defaults) {
+        const storedAmount = data.defaults.amount || '';
+        const parsedAmount = storedAmount ? parseStoredAmount(storedAmount) : null;
+        const inferredMode = data.defaults.amountMode || parsedAmount?.mode || null;
         setFormData(prev => ({ 
           ...prev, 
           journalNo: data.defaults.journalNo || prev.journalNo,
           fromAccount: data.defaults.fromAccount || prev.fromAccount,
           toAccount: data.defaults.toAccount || prev.toAccount,
-          amount: data.defaults.amount || prev.amount,
+          amount: storedAmount || prev.amount,
+          amountMode: inferredMode || prev.amountMode,
           receiptDelayRange: data.defaults.receiptDelayRange || prev.receiptDelayRange,
           bookingDelayRange: data.defaults.bookingDelayRange || prev.bookingDelayRange,
         }));
+        if (parsedAmount?.mode === 'random') {
+          setAmountRangeDefault({ min: parsedAmount.min, max: parsedAmount.max });
+        }
       }
     } catch (err) {
       console.error('Failed to load global config', err);
@@ -171,6 +214,17 @@ const GeneratorPage = () => {
           }
           if (defaults?.amount) {
             setAmountsBySource(prev => ({ ...prev, [acc.id]: defaults.amount }));
+          }
+          const parsedAmt = defaults?.amount ? parseStoredAmount(defaults.amount) : null;
+          const storedMode = defaults?.amountMode || parsedAmt?.mode || null;
+          if (storedMode) {
+            setAmountModesBySource(prev => ({ ...prev, [acc.id]: storedMode }));
+          }
+          if (parsedAmt?.mode === 'random') {
+            setAmountRangeBySource(prev => ({
+              ...prev,
+              [acc.id]: { min: parsedAmt.min, max: parsedAmt.max },
+            }));
           }
           if (defaults?.fromAccount) {
             setFromAccountsBySource(prev => ({ ...prev, [acc.id]: defaults.fromAccount }));
@@ -200,6 +254,7 @@ const GeneratorPage = () => {
   const cancelSending = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (bookingTimerRef.current) clearTimeout(bookingTimerRef.current);
+    clearAllPendingSaves();
     broadcastCancelledRef.current = true;
     // Bump runId so any pending async work from this run becomes stale
     // and cannot touch state, emit toasts, or flip the active flag.
@@ -312,6 +367,9 @@ const GeneratorPage = () => {
     const account = getAccountById(accountId);
     return {
       amount: hasAccountOverride(amountsBySource, accountId) ? amountsBySource[accountId] : formData.amount,
+      amountMode: hasAccountOverride(amountModesBySource, accountId)
+        ? amountModesBySource[accountId]
+        : formData.amountMode,
       fromAccount: hasAccountOverride(fromAccountsBySource, accountId)
         ? fromAccountsBySource[accountId]
         : account?.bank_account_number || formData.fromAccount,
@@ -332,17 +390,31 @@ const GeneratorPage = () => {
       : isMultiSelect
         ? Array.from(selectedSourceAccounts)
         : [focusedAccountId].filter(Boolean);
-    
-    if (accountsToUpdate.length === 0) return;
 
     setIsSaving(true);
     try {
-      const promises = accountsToUpdate.map(accId => {
-        const targets = targetsBySource[accId] ? Array.from(targetsBySource[accId]) : [];
-        const defaults = getAccountDefaults(accId, dataUpdates);
-        return configService.saveAccountConfig(accId, targets, defaults);
-      });
-      await Promise.all(promises);
+      // No account selected → persist edits to the shared 'global' defaults
+      // so the default editor's Amount / mode / journalNo etc. survive reloads.
+      if (accountsToUpdate.length === 0) {
+        const mergedDefaults = {
+          journalNo: formData.journalNo,
+          toAccount: formData.toAccount,
+          amount: formData.amount,
+          amountMode: formData.amountMode,
+          fromAccount: formData.fromAccount,
+          receiptDelayRange: formData.receiptDelayRange,
+          bookingDelayRange: formData.bookingDelayRange,
+          ...dataUpdates,
+        };
+        await configService.saveAccountConfig('global', [], mergedDefaults);
+      } else {
+        const promises = accountsToUpdate.map(accId => {
+          const targets = targetsBySource[accId] ? Array.from(targetsBySource[accId]) : [];
+          const defaults = getAccountDefaults(accId, dataUpdates);
+          return configService.saveAccountConfig(accId, targets, defaults);
+        });
+        await Promise.all(promises);
+      }
       setTimeout(() => setIsSaving(false), 500);
     } catch (err) {
       console.error('Auto-save failed', err);
@@ -356,26 +428,114 @@ const GeneratorPage = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
     
     // Auto-save logic
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      autoSaveToDB({ [name]: value });
-    }, 1000);
+    scheduleSave(`global:${name}`, () => autoSaveToDB({ [name]: value }));
   };
 
   const handleAmountChange = (accountId, val) => {
     const targetId = accountId || focusedAccountId;
     if (!targetId) {
       setFormData(prev => ({ ...prev, amount: val }));
+      scheduleSave('global:amount', () => autoSaveToDB({ amount: val }));
       return;
     }
     
     setAmountsBySource(prev => ({ ...prev, [targetId]: val }));
     if (targetId === focusedAccountId) setFormData(prev => ({ ...prev, amount: val }));
     
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      autoSaveToDB({ amount: val }, targetId);
-    }, 1000);
+    scheduleSave(`account:${targetId}:amount`, () => autoSaveToDB({ amount: val }, targetId));
+  };
+
+  // Derive the current min/max for the random editor from UI state, falling
+  // back to whatever is encoded in the stored amount string for legacy data
+  // (e.g. configs saved before the dedicated range state existed).
+  const getAmountRange = (accountId) => {
+    if (accountId) {
+      const stored = amountRangeBySource[accountId];
+      if (stored) return stored;
+      const parsed = parseStoredAmount(amountsBySource[accountId] ?? '');
+      return parsed.mode === 'random'
+        ? { min: parsed.min, max: parsed.max }
+        : { min: '', max: '' };
+    }
+    if (amountRangeDefault.min || amountRangeDefault.max) return amountRangeDefault;
+    const parsed = parseStoredAmount(formData.amount);
+    return parsed.mode === 'random'
+      ? { min: parsed.min, max: parsed.max }
+      : { min: '', max: '' };
+  };
+
+  // Switch the Amount editor between 'manual' and 'random' for one account
+  // (or the default editor when accountId is null). Also rewrites the stored
+  // amount value to the shape the new mode expects so the send path doesn't
+  // pick up a stale value of the wrong shape.
+  const handleAmountModeChange = (accountId, mode) => {
+    const targetId = accountId || focusedAccountId;
+    const currentAmount = targetId
+      ? (amountsBySource[targetId] ?? formData.amount)
+      : formData.amount;
+    const parsed = parseStoredAmount(currentAmount);
+
+    let nextValue;
+    let nextRange = { min: '', max: '' };
+    if (mode === 'random') {
+      if (parsed.mode === 'random') {
+        nextRange = { min: parsed.min, max: parsed.max };
+      } else {
+        const n = Number(String(parsed.fixed).replace(/,/g, ''));
+        if (Number.isFinite(n) && n > 0) {
+          nextRange = {
+            min: String(Math.max(0, Math.floor(n - 10))),
+            max: String(Math.floor(n + 10)),
+          };
+        }
+      }
+      nextValue = formatAmountRange(nextRange.min, nextRange.max);
+    } else {
+      // manual: collapse to a single value (use min of the range if present).
+      nextValue = parsed.mode === 'random' ? parsed.min : parsed.fixed;
+    }
+
+    if (!targetId) {
+      setAmountRangeDefault(nextRange);
+      setFormData(prev => ({ ...prev, amountMode: mode, amount: nextValue }));
+      scheduleSave('global:amount', () => autoSaveToDB({ amountMode: mode, amount: nextValue }));
+      return;
+    }
+
+    setAmountRangeBySource(prev => ({ ...prev, [targetId]: nextRange }));
+    setAmountModesBySource(prev => ({ ...prev, [targetId]: mode }));
+    setAmountsBySource(prev => ({ ...prev, [targetId]: nextValue }));
+    if (targetId === focusedAccountId) {
+      setFormData(prev => ({ ...prev, amountMode: mode, amount: nextValue }));
+    }
+    scheduleSave(`account:${targetId}:amount`, () => autoSaveToDB({ amountMode: mode, amount: nextValue }, targetId));
+  };
+
+  // Update min/max for an account in 'random' mode. UI state (amountRange*)
+  // keeps the in-progress min/max so an empty side isn't lost while typing.
+  // The serialized "MIN to MAX" is written to amountsBySource only when both
+  // sides are filled; otherwise the bare number remains so a partial entry is
+  // still a valid (fixed) amount for the send pipeline.
+  const handleAmountRangeChange = (accountId, which, val) => {
+    const targetId = accountId || focusedAccountId;
+    const current = getAmountRange(targetId);
+    const nextMin = which === 'min' ? val : (current.min || '');
+    const nextMax = which === 'max' ? val : (current.max || '');
+    const nextRange = { min: nextMin, max: nextMax };
+    const nextValue = formatAmountRange(nextMin, nextMax);
+
+    if (!targetId) {
+      setAmountRangeDefault(nextRange);
+      setFormData(prev => ({ ...prev, amount: nextValue }));
+      scheduleSave('global:amount', () => autoSaveToDB({ amount: nextValue }));
+      return;
+    }
+    setAmountRangeBySource(prev => ({ ...prev, [targetId]: nextRange }));
+    setAmountsBySource(prev => ({ ...prev, [targetId]: nextValue }));
+    if (targetId === focusedAccountId) {
+      setFormData(prev => ({ ...prev, amount: nextValue }));
+    }
+    scheduleSave(`account:${targetId}:amount`, () => autoSaveToDB({ amount: nextValue }, targetId));
   };
 
   const handleFromAccountChange = (accountId, val) => {
@@ -388,10 +548,7 @@ const GeneratorPage = () => {
     setFromAccountsBySource(prev => ({ ...prev, [targetId]: val }));
     if (targetId === focusedAccountId) setFormData(prev => ({ ...prev, fromAccount: val }));
 
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      autoSaveToDB({ fromAccount: val }, targetId);
-    }, 1000);
+    scheduleSave(`account:${targetId}:fromAccount`, () => autoSaveToDB({ fromAccount: val }, targetId));
   };
 
   const handleToAccountChange = (accountId, val) => {
@@ -404,10 +561,7 @@ const GeneratorPage = () => {
     setToAccountsBySource(prev => ({ ...prev, [targetId]: val }));
     if (targetId === focusedAccountId) setFormData(prev => ({ ...prev, toAccount: val }));
 
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      autoSaveToDB({ toAccount: val }, targetId);
-    }, 1000);
+    scheduleSave(`account:${targetId}:toAccount`, () => autoSaveToDB({ toAccount: val }, targetId));
   };
 
   const handleReceiptDelayChange = (accountId, val) => {
@@ -418,10 +572,7 @@ const GeneratorPage = () => {
     }
     setReceiptDelaysBySource(prev => ({ ...prev, [targetId]: val }));
     if (targetId === focusedAccountId) setFormData(prev => ({ ...prev, receiptDelayRange: val }));
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      autoSaveToDB({ receiptDelayRange: val }, targetId);
-    }, 1000);
+    scheduleSave(`account:${targetId}:receiptDelayRange`, () => autoSaveToDB({ receiptDelayRange: val }, targetId));
   };
 
   const handleBookingDelayChange = (accountId, val) => {
@@ -432,10 +583,7 @@ const GeneratorPage = () => {
     }
     setBookingDelaysBySource(prev => ({ ...prev, [targetId]: val }));
     if (targetId === focusedAccountId) setFormData(prev => ({ ...prev, bookingDelayRange: val }));
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      autoSaveToDB({ bookingDelayRange: val }, targetId);
-    }, 1000);
+    scheduleSave(`account:${targetId}:bookingDelayRange`, () => autoSaveToDB({ bookingDelayRange: val }, targetId));
   };
 
   const loadAccountConfig = async (accountId) => {
@@ -454,9 +602,20 @@ const GeneratorPage = () => {
           setCollapsedAccounts(prev => new Set([...prev, accountId]));
         }
 
-        // Auto-populate amount for this specific account
+        // Auto-populate amount + mode + range for this specific account
         if (defaults && defaults.amount) {
           setAmountsBySource(prev => ({ ...prev, [accountId]: defaults.amount }));
+        }
+        const parsedAmt = defaults?.amount ? parseStoredAmount(defaults.amount) : null;
+        const storedMode = defaults?.amountMode || parsedAmt?.mode || null;
+        if (storedMode) {
+          setAmountModesBySource(prev => ({ ...prev, [accountId]: storedMode }));
+        }
+        if (parsedAmt?.mode === 'random') {
+          setAmountRangeBySource(prev => ({
+            ...prev,
+            [accountId]: { min: parsedAmt.min, max: parsedAmt.max },
+          }));
         }
 
         // Auto-populate fromAccount for this specific account
@@ -626,8 +785,35 @@ const GeneratorPage = () => {
     bookingNo: '',
     message: '',
     receiptDelayRange: '10-30',
-    bookingDelayRange: '10-20'
+    bookingDelayRange: '10-20',
+    amountMode: 'manual',
   });
+
+  // Parse a stored amount string into { mode, min, max, fixed }.
+  // Range syntax "MIN to MAX" / "MIN-MAX" → random; anything else → manual.
+  const parseStoredAmount = (raw) => {
+    const str = String(raw ?? '').trim();
+    const m = str.match(/^(-?\d+(?:\.\d+)?)\s*(?:to|-|–|—)\s*(-?\d+(?:\.\d+)?)$/i);
+    if (m) {
+      const a = Number(m[1]); const b = Number(m[2]);
+      return { mode: 'random', min: String(Math.min(a, b)), max: String(Math.max(a, b)), fixed: '' };
+    }
+    return { mode: 'manual', min: '', max: '', fixed: str };
+  };
+
+  // Serialize a min/max pair into the stored amount string.
+  // - Both sides present → "MIN to MAX" (consumed by pickAmountFromInput)
+  // - Only one side present → keep it as a plain number so the user can
+  //   finish typing the other side without it being coerced into a single-
+  //   point range like "390 to 390". The send pipeline will treat the bare
+  //   number as a fixed amount until both bounds are filled.
+  // - Both empty → ""
+  const formatAmountRange = (min, max) => {
+    const a = String(min ?? '').trim();
+    const b = String(max ?? '').trim();
+    if (a && b) return `${a} to ${b}`;
+    return a || b || '';
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -660,10 +846,7 @@ const GeneratorPage = () => {
     setDatesBySource(prev => ({ ...prev, [targetId]: val }));
     if (targetId === focusedAccountId) setFormData(prev => ({ ...prev, date: val }));
 
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      autoSaveToDB({ date: val }, targetId);
-    }, 1000);
+    scheduleSave(`account:${targetId}:date`, () => autoSaveToDB({ date: val }, targetId));
   };
 
   const handleTimeChange = (accountId, val) => {
@@ -676,10 +859,7 @@ const GeneratorPage = () => {
     setTimesBySource(prev => ({ ...prev, [targetId]: val }));
     if (targetId === focusedAccountId) setFormData(prev => ({ ...prev, time: val }));
 
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      autoSaveToDB({ time: val }, targetId);
-    }, 1000);
+    scheduleSave(`account:${targetId}:time`, () => autoSaveToDB({ time: val }, targetId));
   };
 
   const setCurrentTime = (accountId = focusedAccountId) => {
@@ -1183,17 +1363,114 @@ const GeneratorPage = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1">
-            <Input
-              label="Amount"
-              name={`amount-${accountId || 'default'}`}
-              value={amountValue}
-              onChange={(e) => handleAmountChange(accountId, e.target.value)}
-              placeholder="5,000.00 or 390 to 400"
-            />
-            <span className="text-[10px] text-slate-500">
-              Use a range like <span className="text-emerald-400 font-mono">390 to 400</span> or <span className="text-emerald-400 font-mono">495-500</span> for a different random amount each send.
-            </span>
+          <div className="flex flex-col gap-1.5">
+            {(() => {
+              const parsed = parseStoredAmount(amountValue);
+              const storedMode = accountId
+                ? amountModesBySource[accountId]
+                : formData.amountMode;
+              const mode = storedMode || parsed.mode || 'manual';
+              const isRandom = mode === 'random';
+              const range = getAmountRange(accountId);
+              const minVal = range.min;
+              const maxVal = range.max;
+              // Live sample — recomputes on every render (incl. amountPreviewTick bump).
+              // eslint-disable-next-line no-unused-vars
+              const _tick = amountPreviewTick;
+              let sample = '';
+              if (isRandom && minVal && maxVal) {
+                try { sample = String(pickAmountFromInput(formatAmountRange(minVal, maxVal))); }
+                catch { sample = ''; }
+              }
+              const inputId = `amount-${accountId || 'default'}`;
+              return (
+                <>
+                  <div className="flex items-center justify-between">
+                    <label htmlFor={inputId} className="text-xs text-slate-500 font-bold uppercase tracking-tighter">
+                      Amount
+                    </label>
+                    <div className="inline-flex rounded-lg border border-slate-800 bg-slate-950 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleAmountModeChange(accountId, 'manual')}
+                        className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-colors ${
+                          !isRandom ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Manual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAmountModeChange(accountId, 'random')}
+                        className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-colors ${
+                          isRandom ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Random
+                      </button>
+                    </div>
+                  </div>
+
+                  {!isRandom ? (
+                    <>
+                      <Input
+                        id={inputId}
+                        name={inputId}
+                        value={amountValue}
+                        onChange={(e) => handleAmountChange(accountId, e.target.value)}
+                        placeholder="5,000.00"
+                      />
+                      <span className="text-[10px] text-slate-500">
+                        Exact amount sent on every receipt for this account.
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          name={`${inputId}-min`}
+                          value={minVal}
+                          onChange={(e) => handleAmountRangeChange(accountId, 'min', e.target.value)}
+                          placeholder="Min"
+                          className="flex-1"
+                        />
+                        <span className="text-xs text-slate-500 font-bold">to</span>
+                        <Input
+                          name={`${inputId}-max`}
+                          value={maxVal}
+                          onChange={(e) => handleAmountRangeChange(accountId, 'max', e.target.value)}
+                          placeholder="Max"
+                          className="flex-1"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-900/40 bg-emerald-500/5 px-2.5 py-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">
+                            Sample
+                          </span>
+                          <span className="font-mono text-sm text-emerald-300 truncate">
+                            {sample || '—'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setAmountPreviewTick(t => t + 1)}
+                          disabled={!minVal || !maxVal}
+                          title="Generate another sample"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          Roll
+                        </button>
+                      </div>
+                      <span className="text-[10px] text-slate-500">
+                        Each receipt picks a new random amount between <span className="font-mono text-emerald-400">{minVal || 'min'}</span> and <span className="font-mono text-emerald-400">{maxVal || 'max'}</span>. Decimal bounds keep 2 decimals; whole numbers stay whole.
+                      </span>
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-slate-500 font-bold uppercase tracking-tighter">Journal No. Preview</label>
