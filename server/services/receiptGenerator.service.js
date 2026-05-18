@@ -1,6 +1,5 @@
-/* Fully Fixed For Replit + Puppeteer + Supabase */
-
-import puppeteer from 'puppeteer-core';
+/* This code fixed By Tg:@ImxCodex */
+import puppeteer from 'puppeteer';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
@@ -9,15 +8,7 @@ import { AppError } from '../utils/errors.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-const templatePath = join(
-  __dirname,
-  '..',
-  '..',
-  'templates',
-  'transaction-receipt.html'
-);
-
+const templatePath = join(__dirname, '..', '..', 'templates', 'transaction-receipt.html');
 const RECEIPT_TIME_ZONE = 'Asia/Thimphu';
 
 class ReceiptGeneratorService {
@@ -25,131 +16,55 @@ class ReceiptGeneratorService {
     this.browser = null;
   }
 
-  async getChromePath() {
-    const possiblePaths = [
-      process.env.PUPPETEER_EXECUTABLE_PATH,
-      '/nix/store/bvqn8vwhfxary4j5ydb9l757jacbql96-google-chrome-138.0.7204.92/bin/google-chrome-stable',
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/google-chrome',
-    ].filter(Boolean);
-
-    for (const path of possiblePaths) {
-      if (existsSync(path)) {
-        console.log('Chrome found at:', path);
-        return path;
-      }
-    }
-
-    throw new Error(
-      'Chrome browser not found. Add pkgs.google-chrome in replit.nix'
-    );
-  }
-
   async getBrowser() {
-    try {
-      if (!this.browser) {
-
-        console.log('Launching Chrome browser...');
-
-        const chromePath = await this.getChromePath();
-
-        console.log('Using Chrome path:', chromePath);
-
+    if (!this.browser || !this.browser.connected) {
+      console.log('Launching new browser instance...');
+      try {
         this.browser = await puppeteer.launch({
-          executablePath: chromePath,
-
           headless: true,
-
+          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
-            '--disable-extensions',
-            '--disable-background-networking',
-            '--disable-sync',
-            '--disable-translate',
-            '--hide-scrollbars',
-            '--metrics-recording-only',
-            '--mute-audio',
-            '--no-first-run',
-            '--safebrowsing-disable-auto-update',
-            '--ignore-certificate-errors',
-            '--ignore-ssl-errors',
-            '--ignore-certificate-errors-spki-list',
-            '--disable-software-rasterizer',
-            '--disable-features=site-per-process',
-            '--no-zygote',
-            '--single-process'
           ],
-
-          timeout: 60000
         });
-
-        this.browser.on('disconnected', () => {
-          console.log('Browser disconnected');
-          this.browser = null;
-        });
-
         console.log('Browser launched successfully');
+      } catch (error) {
+        console.error('Failed to launch browser:', error);
+        throw AppError.internal(`Failed to start browser: ${error.message}`);
       }
-
-      return this.browser;
-
-    } catch (error) {
-
-      console.error('Browser launch failed:', error);
-
-      throw AppError.internal(
-        `Failed to start browser: ${error.message}`
-      );
     }
+
+    return this.browser;
   }
 
   async loadTemplate() {
     if (!existsSync(templatePath)) {
-      throw AppError.internal(
-        `Template file not found at ${templatePath}`
-      );
+      throw AppError.internal(`Template file not found at ${templatePath}`);
     }
 
-    return await readFile(templatePath, 'utf8');
+    return readFile(templatePath, 'utf8');
   }
 
-  async generateBuffer(
-    variables = {},
-    width = 720,
-    height = 1280
-  ) {
-
+  async generateBuffer(variables = {}, width = 720, height = 1280) {
     const html = await this.loadTemplate();
-
+    
+    // Load main logo as base64
     let logoBase64 = '';
-
-    const logoPath = join(
-      dirname(templatePath),
-      'logo1.jpg'
-    );
-
+    const logoPath = join(dirname(templatePath), 'logo1.jpg');
     if (existsSync(logoPath)) {
       const logoBuffer = await readFile(logoPath);
-
-      logoBase64 =
-        `data:image/jpeg;base64,${logoBuffer.toString('base64')}`;
+      logoBase64 = `data:image/jpeg;base64,${logoBuffer.toString('base64')}`;
     }
 
+    // Load logo O (for watermark) as base64
     let logoOBase64 = '';
-
-    const logoOPath = join(
-      dirname(templatePath),
-      'anotherone.png'
-    );
-
+    const logoOPath = join(dirname(templatePath), 'anotherone.png');
     if (existsSync(logoOPath)) {
       const logoOBuffer = await readFile(logoOPath);
-
-      logoOBase64 =
-        `data:image/png;base64,${logoOBuffer.toString('base64')}`;
+      logoOBase64 = `data:image/png;base64,${logoOBuffer.toString('base64')}`;
     }
 
     const processedHtml = this.processVariables(html, {
@@ -157,160 +72,86 @@ class ReceiptGeneratorService {
       logo: logoBase64,
       logoO: logoOBase64
     });
-
     const browser = await this.getBrowser();
-
     const page = await browser.newPage();
 
     try {
-
-      console.log('Generating receipt image...');
-
-      await page.setViewport({
-        width: Number(width) || 720,
-        height: Number(height) || 1280
+      console.log('Generating receipt buffer...', { width, height });
+      await page.setViewport({ width: Number(width) || 720, height: Number(height) || 1280 });
+      
+      // Use 'load' which is faster and more reliable than waiting for network idle
+      await page.setContent(processedHtml, { 
+        waitUntil: 'load', 
+        timeout: 60000 // 60 second timeout for slow networks
       });
-
-      await page.setContent(processedHtml, {
-        waitUntil: 'load',
-        timeout: 60000
-      });
-
-      await new Promise(resolve =>
-        setTimeout(resolve, 1000)
-      );
+      
+      // Wait slightly for fonts/styles to stabilize
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const buffer = await page.screenshot({
         type: 'png',
         fullPage: false,
-        omitBackground: false
+        omitBackground: false,
       });
 
-      console.log('Receipt generated successfully');
-
+      console.log('Receipt buffer generated successfully');
       return Buffer.from(buffer);
-
     } catch (error) {
-
       console.error('Receipt generation error:', error);
-
-      throw AppError.internal(
-        `Failed to generate receipt: ${error.message}`
-      );
-
+      throw AppError.internal(`Failed to generate receipt: ${error.message}`);
     } finally {
-
-      try {
-        await page.close();
-      } catch {
-        console.log('Page already closed');
-      }
+      await page.close();
     }
   }
 
-  async generatePreview(
-    variables = {},
-    width = 720,
-    height = 1280
-  ) {
-
-    const buffer = await this.generateBuffer(
-      variables,
-      width,
-      height
-    );
-
+  async generatePreview(variables = {}, width = 720, height = 1280) {
+    const buffer = await this.generateBuffer(variables, width, height);
     return `data:image/png;base64,${buffer.toString('base64')}`;
   }
 
   processVariables(html, variables) {
-
     let processed = html;
 
     for (const [key, value] of Object.entries(variables)) {
-
-      const regex = new RegExp(
-        `\\{\\{${key}\\}\\}`,
-        'g'
-      );
-
-      const replacement =
-        value !== undefined && value !== null
-          ? String(value)
-          : '';
-
-      processed = processed.replace(
-        regex,
-        this.escapeHtml(replacement)
-      );
+      const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+      const replacement = value !== undefined && value !== null ? String(value) : '';
+      processed = processed.replace(regex, this.escapeHtml(replacement));
     }
 
     return processed;
   }
 
   prepareReceiptVariables(variables = {}) {
-
     const prepared = { ...variables };
 
-    prepared.amount = this.formatAmount(
-      prepared.amount || '5,000.00'
-    );
-
-    prepared.journalNo = this.formatJournalNo(
-      prepared.journalNo
-    );
-
-    prepared.fromAccount = this.maskAccount(
-      prepared.fromAccount || '94123444'
-    );
-
-    prepared.toAccount = this.maskAccount(
-      prepared.toAccount || '49123464'
-    );
-
-    prepared.purpose =
-      prepared.purpose || 'Go';
-
-    prepared.date = this.formatReceiptDate(
-      prepared.date
-    );
-
-    prepared.time = this.formatReceiptTime(
-      prepared.time
-    );
+    prepared.amount = this.formatAmount(prepared.amount || '5,000.00');
+    prepared.journalNo = this.formatJournalNo(prepared.journalNo);
+    prepared.fromAccount = this.maskAccount(prepared.fromAccount || '94123444');
+    prepared.toAccount = this.maskAccount(prepared.toAccount || '49123464');
+    prepared.purpose = prepared.purpose || 'Go';
+    prepared.date = this.formatReceiptDate(prepared.date);
+    prepared.time = this.formatReceiptTime(prepared.time);
 
     return prepared;
   }
 
   formatAmount(value) {
-
-    const text = String(value || '')
-      .trim()
-      .replace(/^Nu\.\s*/i, '')
-      .replace(/^Rs\.\s*/i, '')
-      .replace(/^INR\s*/i, '');
-
+    const text = String(value || '').trim().replace(/^Nu\.\s*/i, '').replace(/^Rs\.\s*/i, '').replace(/^INR\s*/i, '');
     return text || '5,000.00';
   }
 
   formatJournalNo(value) {
-
-    const digits = String(value || '')
-      .replace(/\D/g, '')
-      .slice(0, 12);
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 12);
 
     if (digits.length === 12) {
       return digits;
     }
 
     const seed = digits || '78464649';
-
-    return seed +
-      this.randomDigits(12 - seed.length);
+    return seed + this.randomDigits(12 - seed.length);
   }
 
   maskAccount(value) {
-
     const text = String(value || '').trim();
 
     if (/x/i.test(text)) {
@@ -318,70 +159,99 @@ class ReceiptGeneratorService {
     }
 
     const digits = text.replace(/\D/g, '');
-
     if (digits.length >= 4) {
       return `${digits.slice(0, 2)}XXXXX${digits.slice(-2)}`;
     }
 
     const padded = digits.padEnd(4, '0');
-
     return `${padded.slice(0, 2)}XXXXX${padded.slice(-2)}`;
   }
 
   formatReceiptDate(value) {
+    const text = String(value || '').trim();
+    if (/^\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}$/.test(text)) {
+      return text.replace(/\s+/g, ' ');
+    }
 
-    const date = value
-      ? new Date(value)
-      : new Date();
+    const slashMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) {
+      const [, day, month, year] = slashMatch;
+      return this.datePartsToReceipt(day, month, year);
+    }
+
+    const date = text ? new Date(text) : (() => {
+      return new Date();
+    })();
+
+    if (Number.isNaN(date.getTime())) {
+      return new Date().toLocaleDateString('en-GB', {
+        timeZone: RECEIPT_TIME_ZONE,
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      });
+    }
 
     return date.toLocaleDateString('en-GB', {
       timeZone: RECEIPT_TIME_ZONE,
       day: 'numeric',
       month: 'long',
-      year: 'numeric'
+      year: 'numeric',
     });
   }
 
-  formatReceiptTime() {
+  datePartsToReceipt(day, month, year) {
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    const monthIndex = Number(month) - 1;
+    return `${Number(day)} ${monthNames[monthIndex] || 'May'} ${year}`;
+  }
 
+  formatReceiptTime(value) {
+    const text = String(value || '').trim();
+    if (/^\d{1,2}:\d{2}:\d{2}\s?(AM|PM)$/i.test(text)) {
+      return text.replace(/\s?(AM|PM)$/i, match => ` ${match.trim().toUpperCase()}`);
+    }
+
+    const match = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    
+    // Default to Bhutan time.
     const date = new Date();
 
+    if (match) {
+      date.setHours(Number(match[1]), Number(match[2]), Number(match[3] || '0'), 0);
+    }
+
     return date.toLocaleTimeString('en-US', {
-      timeZone: RECEIPT_TIME_ZONE,
+      timeZone: match ? undefined : RECEIPT_TIME_ZONE,
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: true
+      hour12: true,
     });
   }
 
   randomDigits(length) {
-
     let output = '';
-
-    for (let i = 0; i < length; i++) {
+    for (let index = 0; index < length; index += 1) {
       output += Math.floor(Math.random() * 10);
     }
-
     return output;
   }
 
   escapeHtml(text) {
-
     const map = {
       '&': '&amp;',
       '<': '&lt;',
       '>': '&gt;',
       '"': '&quot;',
-      "'": '&#039;'
+      "'": '&#039;',
     };
 
-    return String(text).replace(
-      /[&<>\"']/g,
-      char => map[char]
-    );
+    return String(text).replace(/[&<>"']/g, char => map[char]);
   }
 }
 
-export const receiptGeneratorService =
-  new ReceiptGeneratorService();
+export const receiptGeneratorService = new ReceiptGeneratorService();

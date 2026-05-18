@@ -25,6 +25,7 @@
     "helmet": "^7.1.0",
     "lucide-react": "^1.14.0",
     "morgan": "^1.10.0",
+    "puppeteer": "^23.11.1",
     "puppeteer-core": "^23.11.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
