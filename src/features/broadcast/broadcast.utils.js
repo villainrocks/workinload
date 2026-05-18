@@ -242,27 +242,52 @@ export const getAccountDisplay = (account = {}) => {
  * The original formatting (commas, decimals) of single values is preserved
  * so manual edits like "5,000.00" still render exactly as typed.
  */
+// Format any numeric-ish amount string into the canonical receipt shape:
+// thousand-separated whole part + always exactly 2 decimals (e.g. "1,990.00").
+// Returns the original trimmed string unchanged if it cannot be parsed as a
+// number, and returns "" for empty/nullish input.
+export const formatAmountForReceipt = (raw) => {
+  if (raw === null || raw === undefined) return '';
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '';
+  // Strip currency prefixes and commas before parsing.
+  const cleaned = trimmed
+    .replace(/^Nu\.\s*/i, '')
+    .replace(/^Rs\.\s*/i, '')
+    .replace(/^INR\s*/i, '')
+    .replace(/,/g, '');
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return trimmed;
+  return n.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
 export const pickAmountFromInput = (input) => {
   if (input === null || input === undefined) return '';
   const raw = String(input).trim();
   if (!raw) return raw;
 
-  // Match "<num> [to|-|–|—] <num>" with flexible whitespace.
-  const rangeMatch = raw.match(/^(-?\d+(?:\.\d+)?)\s*(?:to|-|–|—)\s*(-?\d+(?:\.\d+)?)$/i);
-  if (!rangeMatch) return raw;
+  // Match "<num> [to|-|–|—] <num>" with flexible whitespace. Commas allowed
+  // inside the numbers so presets like "1,990 to 2,000" parse correctly.
+  const rangeMatch = raw.match(/^(-?[\d,]+(?:\.\d+)?)\s*(?:to|-|–|—)\s*(-?[\d,]+(?:\.\d+)?)$/i);
+  if (!rangeMatch) {
+    // Single value: still normalize to "X,XXX.00" so receipts always show .00.
+    return formatAmountForReceipt(raw);
+  }
 
-  const a = Number(rangeMatch[1]);
-  const b = Number(rangeMatch[2]);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return raw;
+  const a = Number(String(rangeMatch[1]).replace(/,/g, ''));
+  const b = Number(String(rangeMatch[2]).replace(/,/g, ''));
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return formatAmountForReceipt(raw);
 
   const min = Math.min(a, b);
   const max = Math.max(a, b);
   // Integer pick if both bounds are whole numbers, otherwise 2-decimal float.
-  if (Number.isInteger(a) && Number.isInteger(b)) {
-    return String(Math.floor(Math.random() * (max - min + 1)) + min);
-  }
-  const picked = Math.random() * (max - min) + min;
-  return picked.toFixed(2);
+  const picked = (Number.isInteger(a) && Number.isInteger(b))
+    ? Math.floor(Math.random() * (max - min + 1)) + min
+    : Math.random() * (max - min) + min;
+  return formatAmountForReceipt(picked);
 };
 
 export const formatReceiptPayload = (data) => ({

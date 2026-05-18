@@ -33,6 +33,15 @@ import {
   randomDigits,
 } from '../features/broadcast/broadcast.utils';
 
+// Quick-pick ranges shown as chips in Random mode. Tuned for common Bhutanese
+// receipt amounts and rendered as "390 – 400" buttons.
+const AMOUNT_RANGE_PRESETS = [
+  [390, 400],
+  [590, 600],
+  [990, 999],
+  [1990, 2000],
+];
+
 const clearTimerRef = (ref) => {
   if (ref.current) {
     clearTimeout(ref.current);
@@ -538,6 +547,34 @@ const GeneratorPage = () => {
     scheduleSave(`account:${targetId}:amount`, () => autoSaveToDB({ amount: nextValue }, targetId));
   };
 
+  // Atomic preset selector: sets BOTH min and max in a single call so we
+  // don't hit React's async state batching that would otherwise make the
+  // second of two back-to-back handleAmountRangeChange calls read stale state.
+  const handleAmountPresetSelect = (accountId, presetMin, presetMax) => {
+    const targetId = accountId || focusedAccountId;
+    const minStr = String(presetMin);
+    const maxStr = String(presetMax);
+    const nextRange = { min: minStr, max: maxStr };
+    const nextValue = formatAmountRange(minStr, maxStr);
+
+    if (!targetId) {
+      setAmountRangeDefault(nextRange);
+      setFormData(prev => ({ ...prev, amount: nextValue, amountMode: 'random' }));
+      scheduleSave('global:amount', () => autoSaveToDB({ amount: nextValue, amountMode: 'random' }));
+      return;
+    }
+    setAmountRangeBySource(prev => ({ ...prev, [targetId]: nextRange }));
+    setAmountModesBySource(prev => ({ ...prev, [targetId]: 'random' }));
+    setAmountsBySource(prev => ({ ...prev, [targetId]: nextValue }));
+    if (targetId === focusedAccountId) {
+      setFormData(prev => ({ ...prev, amount: nextValue, amountMode: 'random' }));
+    }
+    scheduleSave(
+      `account:${targetId}:amount`,
+      () => autoSaveToDB({ amount: nextValue, amountMode: 'random' }, targetId),
+    );
+  };
+
   const handleFromAccountChange = (accountId, val) => {
     const targetId = accountId || focusedAccountId;
     if (!targetId) {
@@ -775,7 +812,7 @@ const GeneratorPage = () => {
 
   // Receipt details based on documentation
   const [formData, setFormData] = useState({
-    amount: '5,000.00',
+    amount: '',
     journalNo: '78464649',
     fromAccount: '941234444',
     toAccount: '491234644',
@@ -793,10 +830,15 @@ const GeneratorPage = () => {
   // Range syntax "MIN to MAX" / "MIN-MAX" → random; anything else → manual.
   const parseStoredAmount = (raw) => {
     const str = String(raw ?? '').trim();
-    const m = str.match(/^(-?\d+(?:\.\d+)?)\s*(?:to|-|–|—)\s*(-?\d+(?:\.\d+)?)$/i);
+    // Allow commas inside numbers so legacy/canonical values like
+    // "1,990 to 2,000" round-trip cleanly with pickAmountFromInput.
+    const m = str.match(/^(-?[\d,]+(?:\.\d+)?)\s*(?:to|-|–|—)\s*(-?[\d,]+(?:\.\d+)?)$/i);
     if (m) {
-      const a = Number(m[1]); const b = Number(m[2]);
-      return { mode: 'random', min: String(Math.min(a, b)), max: String(Math.max(a, b)), fixed: '' };
+      const a = Number(String(m[1]).replace(/,/g, ''));
+      const b = Number(String(m[2]).replace(/,/g, ''));
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        return { mode: 'random', min: String(Math.min(a, b)), max: String(Math.max(a, b)), fixed: '' };
+      }
     }
     return { mode: 'manual', min: '', max: '', fixed: str };
   };
@@ -1418,14 +1460,33 @@ const GeneratorPage = () => {
                         name={inputId}
                         value={amountValue}
                         onChange={(e) => handleAmountChange(accountId, e.target.value)}
-                        placeholder="5,000.00"
+                        placeholder="Enter amount"
                       />
                       <span className="text-[10px] text-slate-500">
-                        Exact amount sent on every receipt for this account.
+                        Exact amount for this account. Receipts always render with <span className="font-mono text-emerald-400">.00</span> decimals.
                       </span>
                     </>
                   ) : (
                     <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {AMOUNT_RANGE_PRESETS.map(([pMin, pMax]) => {
+                          const active = String(minVal) === String(pMin) && String(maxVal) === String(pMax);
+                          return (
+                            <button
+                              key={`${pMin}-${pMax}`}
+                              type="button"
+                              onClick={() => handleAmountPresetSelect(accountId, pMin, pMax)}
+                              className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-colors ${
+                                active
+                                  ? 'bg-emerald-600 border-emerald-500 text-white'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-emerald-700 hover:text-emerald-300'
+                              }`}
+                            >
+                              {pMin.toLocaleString('en-US')} – {pMax.toLocaleString('en-US')}
+                            </button>
+                          );
+                        })}
+                      </div>
                       <div className="flex items-center gap-2">
                         <Input
                           name={`${inputId}-min`}
