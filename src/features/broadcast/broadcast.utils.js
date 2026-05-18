@@ -30,7 +30,7 @@ const cornerRadii = ['12px', '16px', '20px', '24px'];
 const RECEIPT_TIME_ZONE = 'Asia/Thimphu';
 
 const fixedDelayOptions = Array.from({ length: 30 }, (_, i) => {
-  const totalSecs = (i + 1) * 10;
+  const totalSecs = (i + 1) * 5;
   return {
     value: `${totalSecs}-${totalSecs}`,
     label: `+${formatDelay(totalSecs)}`,
@@ -39,18 +39,18 @@ const fixedDelayOptions = Array.from({ length: 30 }, (_, i) => {
 
 export const receiptScheduleOptions = [
   { value: '0-0', label: 'Receipt time now' },
-  { value: '10-30', label: 'Receipt +10-30 sec' },
-  { value: '30-60', label: 'Receipt +30-60 sec' },
-  { value: '60-120', label: 'Receipt +1-2 min' },
-  ...fixedDelayOptions,
+  { value: '5-5', label: 'Receipt +5 sec' },
+  { value: '10-10', label: 'Receipt +10 sec' },
+  { value: '15-15', label: 'Receipt +15 sec' },
+  ...fixedDelayOptions.filter(o => !['5-5','10-10','15-15'].includes(o.value)),
 ];
 
 export const bookingDelayOptions = [
   { value: '0-0', label: 'Booking no offset' },
-  { value: '10-20', label: 'Booking +10-20 sec' },
-  { value: '20-40', label: 'Booking +20-40 sec' },
-  { value: '60-120', label: 'Booking +1-2 min' },
-  ...fixedDelayOptions,
+  { value: '5-5', label: 'Booking +5 sec' },
+  { value: '10-10', label: 'Booking +10 sec' },
+  { value: '15-15', label: 'Booking +15 sec' },
+  ...fixedDelayOptions.filter(o => !['5-5','10-10','15-15'].includes(o.value)),
 ];
 
 export const delayOptions = receiptScheduleOptions;
