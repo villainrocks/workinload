@@ -29,7 +29,7 @@ const bgFills = ['#ffffff', '#fafafa', '#fdfdfd'];
 const cornerRadii = ['12px', '16px', '20px', '24px'];
 const RECEIPT_TIME_ZONE = 'Asia/Thimphu';
 
-const fixedDelayOptions = Array.from({ length: 30 }, (_, i) => {
+const fixedDelayOptions = Array.from({ length: 120 }, (_, i) => {
   const totalSecs = (i + 1) * 5;
   return {
     value: `${totalSecs}-${totalSecs}`,
