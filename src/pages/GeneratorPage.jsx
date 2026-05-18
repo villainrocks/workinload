@@ -23,6 +23,7 @@ import {
   buildRandomPurpose,
   buildSchedulePlan,
   formatReceiptPayload,
+  pickAmountFromInput,
   getAccountDisplay,
   getBhutanDateTime,
   getBhutanDateTimeAfterSeconds,
@@ -713,7 +714,7 @@ const GeneratorPage = () => {
 
         const receiptPayload = {
           ...formatReceiptPayload(formData),
-          amount: amountsBySource[accId] || formData.amount,
+          amount: pickAmountFromInput(amountsBySource[accId] || formData.amount),
           fromAccount: fromAccountsBySource[accId] || account?.bank_account_number || formData.fromAccount,
           toAccount: toAccountsBySource[accId] || formData.toAccount,
           date: deliveryDateTime.date,
@@ -860,7 +861,7 @@ const GeneratorPage = () => {
 
           const receiptPayload = {
             ...formatReceiptPayload(formData),
-            amount: amountsBySource[accId] || formData.amount,
+            amount: pickAmountFromInput(amountsBySource[accId] || formData.amount),
             journalNo: sampleJournalNo,
             fromAccount: fromAccountsBySource[accId] || account?.bank_account_number || formData.fromAccount,
             toAccount: toAccountsBySource[accId] || formData.toAccount,
@@ -960,7 +961,7 @@ const GeneratorPage = () => {
 
           const receiptPayload = {
             ...formatReceiptPayload(formData),
-            amount: amountsBySource[accountId] || formData.amount,
+            amount: pickAmountFromInput(amountsBySource[accountId] || formData.amount),
             journalNo: uniqueJournalNo,
             purpose: uniquePurpose,
             bookingNo: uniqueBookingNo,
@@ -1182,13 +1183,18 @@ const GeneratorPage = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input
-            label="Amount"
-            name={`amount-${accountId || 'default'}`}
-            value={amountValue}
-            onChange={(e) => handleAmountChange(accountId, e.target.value)}
-            placeholder="5,000.00"
-          />
+          <div className="flex flex-col gap-1">
+            <Input
+              label="Amount"
+              name={`amount-${accountId || 'default'}`}
+              value={amountValue}
+              onChange={(e) => handleAmountChange(accountId, e.target.value)}
+              placeholder="5,000.00 or 390 to 400"
+            />
+            <span className="text-[10px] text-slate-500">
+              Use a range like <span className="text-emerald-400 font-mono">390 to 400</span> or <span className="text-emerald-400 font-mono">495-500</span> for a different random amount each send.
+            </span>
+          </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-slate-500 font-bold uppercase tracking-tighter">Journal No. Preview</label>
             <Input

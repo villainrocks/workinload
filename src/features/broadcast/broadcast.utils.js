@@ -233,6 +233,38 @@ export const getAccountDisplay = (account = {}) => {
   return account.username ? `@${account.username}` : account.phone || String(account.id || 'Unknown');
 };
 
+/**
+ * Pick an amount from a user input. Supports:
+ *   - Range syntax: "390 to 400", "390-400", "390 — 400"
+ *     → random integer between min and max (inclusive).
+ *   - Single value: "5,000.00", "5000", "" → returned unchanged.
+ *
+ * The original formatting (commas, decimals) of single values is preserved
+ * so manual edits like "5,000.00" still render exactly as typed.
+ */
+export const pickAmountFromInput = (input) => {
+  if (input === null || input === undefined) return '';
+  const raw = String(input).trim();
+  if (!raw) return raw;
+
+  // Match "<num> [to|-|–|—] <num>" with flexible whitespace.
+  const rangeMatch = raw.match(/^(-?\d+(?:\.\d+)?)\s*(?:to|-|–|—)\s*(-?\d+(?:\.\d+)?)$/i);
+  if (!rangeMatch) return raw;
+
+  const a = Number(rangeMatch[1]);
+  const b = Number(rangeMatch[2]);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return raw;
+
+  const min = Math.min(a, b);
+  const max = Math.max(a, b);
+  // Integer pick if both bounds are whole numbers, otherwise 2-decimal float.
+  if (Number.isInteger(a) && Number.isInteger(b)) {
+    return String(Math.floor(Math.random() * (max - min + 1)) + min);
+  }
+  const picked = Math.random() * (max - min) + min;
+  return picked.toFixed(2);
+};
+
 export const formatReceiptPayload = (data) => ({
   ...data,
   journalNo: buildJournalNo(data.journalNo),
