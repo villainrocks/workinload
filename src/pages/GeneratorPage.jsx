@@ -99,11 +99,6 @@ const GeneratorPage = () => {
   };
 
   const saveGlobalJournalNo = async () => {
-    if (formData.journalNo.length < 7) {
-      toast.error('Journal prefix must be at least 7 digits');
-      return;
-    }
-    
     setLoading(true);
     try {
       // Save all global fields to the 'global' config row
@@ -730,11 +725,6 @@ const GeneratorPage = () => {
   };
 
   const handleGenerate = async () => {
-    if (formData.journalNo.length < 7) {
-      toast.error('Journal prefix must be at least 7 digits');
-      return;
-    }
-
     // If source accounts and targets are selected, use handleBroadcast
     if (selectedSourceAccounts.size > 0 && getTotalSelectedTargets() > 0 || manualTargets.trim()) {
       await handleBroadcast();
@@ -817,11 +807,6 @@ const GeneratorPage = () => {
   };
 
   const handleBroadcast = async (confirmed = false) => {
-    if (formData.journalNo.length < 7) {
-      toast.error('Journal prefix must be at least 7 digits');
-      return;
-    }
-
     const targets = getBroadcastTargets();
     if (targets.length === 0) {
       toast.error('Please select at least one source account and target.');
@@ -918,7 +903,7 @@ const GeneratorPage = () => {
         try {
           updateJob({ status: 'generating' });
           const uniqueJournalNo = buildJournalNo(formData.journalNo);
-          const uniquePurpose = formData.purpose || buildRandomPurpose(); 
+          const uniquePurpose = buildRandomPurpose();
           const uniqueBookingNo = buildRandomBookingNo();
           const { schedulePlan, deliveryDateTime } = getPlannedDelivery(accountId, timingPlan, Boolean(uniqueBookingNo));
           const resolution = getRandomResolution();
@@ -1483,14 +1468,15 @@ const GeneratorPage = () => {
               <div className="flex-1 w-full flex items-center gap-2">
                 <div className="relative flex-1">
                   <Input 
-                    placeholder="Min 7 digits..." 
+                    placeholder="Prefix (auto-padded to 12 digits)" 
                     name="journalNo" 
                     value={formData.journalNo} 
                     onChange={(e) => {
                       const val = e.target.value.replace(/\D/g, '').slice(0, 12);
                       setFormData(prev => ({ ...prev, journalNo: val }));
                     }}
-                    className={`bg-slate-950 h-11 pr-10 font-mono ${formData.journalNo.length < 7 ? 'border-red-500/50 text-red-400' : 'border-slate-800 text-blue-400'}`}
+                    maxLength={12}
+                    className="bg-slate-950 h-11 pr-10 font-mono border-slate-800 text-blue-400"
                   />
                   <button 
                     onClick={generateJournalNo}
@@ -1503,7 +1489,7 @@ const GeneratorPage = () => {
                   variant="primary" 
                   size="sm" 
                   onClick={saveGlobalJournalNo}
-                  disabled={formData.journalNo.length < 7 || loading}
+                  disabled={loading}
                   className="h-11 px-4 rounded-xl shadow-lg shadow-blue-500/10"
                 >
                   Save
