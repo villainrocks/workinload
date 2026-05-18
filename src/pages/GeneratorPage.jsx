@@ -77,6 +77,12 @@ const GeneratorPage = () => {
   const [targetSearch, setTargetSearch] = useState({});
 
   const [sendingState, setSendingState] = useState({ active: false, status: '' });
+  // Ticking clock used to refresh "Xs left" countdowns in Broadcast Activity.
+  // Only runs while a broadcast is active to avoid useless re-renders.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  // Tick every second while a broadcast is active so scheduled-job
+  // countdowns ("Xs left") refresh smoothly. Idle when no broadcast.
   const [collapsedAccounts, setCollapsedAccounts] = useState(new Set());
   const [amountsBySource, setAmountsBySource] = useState({});
   // 'manual' | 'random' — controls how the amount editor renders/serializes
@@ -156,6 +162,15 @@ const GeneratorPage = () => {
       clearAllBroadcastTimers();
     };
   }, []);
+
+  // Drive the 1Hz countdown ticker only while a broadcast is in flight
+  // so the Broadcast Activity card's "Xs left" labels stay live.
+  useEffect(() => {
+    if (!sendingState.active) return undefined;
+    setNowTick(Date.now());
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [sendingState.active]);
 
   const toggleAccountCollapse = (accountId) => {
     setCollapsedAccounts(prev => {
@@ -2013,11 +2028,28 @@ const GeneratorPage = () => {
               </Card.Header>
               <Card.Body className="p-0 max-h-[320px] overflow-y-auto custom-scrollbar">
                 <div className="divide-y divide-blue-500/10">
-                  {Object.entries(sendingState.jobs || {}).map(([accId, job]) => (
+                  {Object.entries(sendingState.jobs || {}).map(([accId, job]) => {
+                    // For scheduled jobs, surface BOTH the absolute target
+                    // delivery time and a live "Xs left" countdown so the
+                    // operator can see exactly when each receipt will land.
+                    const isScheduled = job.status === 'scheduled' && Number.isFinite(job.deliverAt);
+                    const remainingMs = isScheduled ? Math.max(0, job.deliverAt - nowTick) : 0;
+                    const remainingSec = Math.ceil(remainingMs / 1000);
+                    const deliverTimeLabel = isScheduled
+                      ? new Date(job.deliverAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                      : '';
+                    const countdownLabel = isScheduled
+                      ? (remainingSec >= 3600
+                          ? `${Math.floor(remainingSec / 3600)}h ${Math.floor((remainingSec % 3600) / 60)}m ${remainingSec % 60}s left`
+                          : remainingSec >= 60
+                            ? `${Math.floor(remainingSec / 60)}m ${remainingSec % 60}s left`
+                            : `${remainingSec}s left`)
+                      : '';
+                    return (
                     <div key={accId} className="p-3 flex items-center justify-between hover:bg-blue-500/5 transition-colors">
                       <div className="flex flex-col gap-0.5">
                         <span className="text-xs font-bold text-slate-200">{job.accountName}</span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`text-[10px] font-bold uppercase tracking-tighter ${
                             job.status === 'sent' ? 'text-emerald-400' :
                             job.status === 'failed' ? 'text-red-400' :
@@ -2026,12 +2058,12 @@ const GeneratorPage = () => {
                           }`}>
                             {job.status === 'sent' ? 'Sent to group' :
                              job.status === 'failed' ? (job.error ? `Failed: ${job.error}` : 'Failed') :
+                             isScheduled ? `${deliverTimeLabel} · ${countdownLabel}` :
                              (job.statusLabel ||
                               (job.status === 'ready' ? 'Ready' :
                               job.status === 'generating' ? 'Generating receipt' :
                               job.status === 'sending' ? 'Sending now' :
                               job.status === 'scheduling' ? 'Scheduling in Telegram' :
-                              job.status === 'scheduled' ? 'Waiting to deliver' :
                               job.status))}
                           </span>
                           {job.status !== 'sent' && job.status !== 'scheduled' && job.status !== 'failed' && (
@@ -2051,7 +2083,8 @@ const GeneratorPage = () => {
                         <Clock size={14} className="text-slate-500 animate-pulse" />
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </Card.Body>
             </Card>
