@@ -27,10 +27,11 @@ class ReceiptGeneratorService {
 
   async getChromePath() {
     const possiblePaths = [
+      process.env.PUPPETEER_EXECUTABLE_PATH,
+      '/nix/store/bvqn8vwhfxary4j5ydb9l757jacbql96-google-chrome-138.0.7204.92/bin/google-chrome-stable',
       '/usr/bin/google-chrome-stable',
       '/usr/bin/google-chrome',
-      '/nix/store/google-chrome/bin/google-chrome-stable'
-    ];
+    ].filter(Boolean);
 
     for (const path of possiblePaths) {
       if (existsSync(path)) {
