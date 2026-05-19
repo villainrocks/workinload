@@ -137,6 +137,20 @@ class ReceiptGeneratorService {
     prepared.date = this.formatReceiptDate(prepared.date);
     prepared.time = this.formatReceiptTime(prepared.time);
 
+    // Defaults for the per-device "look variation" template vars so callers
+    // that don't supply a frame (older API consumers, tests) still produce
+    // valid CSS instead of leaving raw `{{panelRadius}}` in border-radius.
+    if (!prepared.panelRadius) prepared.panelRadius = '54px';
+    if (!prepared.cornerRadius) prepared.cornerRadius = '20px';
+    if (!prepared.bgFill) prepared.bgFill = '#ffffff';
+    if (!prepared.topPadding) prepared.topPadding = '20px';
+    if (!prepared.bottomPadding) prepared.bottomPadding = '20px';
+    if (!prepared.sidePadding) prepared.sidePadding = '10px';
+    if (!prepared.showShadow) prepared.showShadow = 'none';
+    if (prepared.fillRatio === undefined || prepared.fillRatio === null || prepared.fillRatio === '') {
+      prepared.fillRatio = '1';
+    }
+
     return prepared;
   }
 

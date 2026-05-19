@@ -25,8 +25,11 @@ const mobileResolutions = [
   { width: 720, height: 1600, label: 'Budget Android' },
 ];
 
-const bgFills = ['#ffffff', '#fafafa', '#fdfdfd'];
+const bgFills = ['#ffffff', '#fafafa', '#fdfdfd', '#f7f8fa', '#f4f6f8', '#fbfbfd'];
 const cornerRadii = ['12px', '16px', '20px', '24px'];
+// Panel (the blue card) corner radius — kept close to the canonical 54px so
+// the receipt still looks authentic, but varies slightly per send.
+const panelRadii = ['44px', '48px', '52px', '54px', '58px', '62px'];
 const RECEIPT_TIME_ZONE = 'Asia/Thimphu';
 
 const fixedDelayOptions = Array.from({ length: 120 }, (_, i) => {
@@ -142,14 +145,37 @@ export const getRandomResolution = () => (
   mobileResolutions[Math.floor(Math.random() * mobileResolutions.length)]
 );
 
-export const getRandomFrame = () => ({
-  topPadding: `${Math.floor(Math.random() * 15) + 15}px`,
-  bottomPadding: `${Math.floor(Math.random() * 15) + 15}px`,
-  sidePadding: `${Math.floor(Math.random() * 8) + 8}px`,
-  bgFill: bgFills[Math.floor(Math.random() * bgFills.length)],
-  cornerRadius: cornerRadii[Math.floor(Math.random() * cornerRadii.length)],
-  showShadow: 'none',
-});
+export const getRandomFrame = () => {
+  // Each send should look like a screenshot from a different phone:
+  //   - status-bar / nav-bar offsets vary the top/bottom whitespace
+  //   - fillRatio scales how much of the screen width the receipt occupies
+  //     (mimics phones with different DPI / browser zoom defaults)
+  //   - panelRadius nudges the blue card's corner radius
+  // Pick three loose buckets so consecutive sends don't drift into the same look.
+  const fillBuckets = [
+    [0.82, 0.88], // "small phone screenshot" — receipt looks tighter
+    [0.88, 0.95], // "normal" — close to current behaviour
+    [0.95, 1.0],  // "large phone" — receipt fills the frame
+  ];
+  const [fillMin, fillMax] = fillBuckets[Math.floor(Math.random() * fillBuckets.length)];
+  const fillRatio = Number((fillMin + Math.random() * (fillMax - fillMin)).toFixed(3));
+
+  // Status-bar / address-bar variance: 10–60px top, 8–40px bottom.
+  const topPadding = `${Math.floor(Math.random() * 51) + 10}px`;
+  const bottomPadding = `${Math.floor(Math.random() * 33) + 8}px`;
+  const sidePadding = `${Math.floor(Math.random() * 14) + 6}px`;
+
+  return {
+    topPadding,
+    bottomPadding,
+    sidePadding,
+    bgFill: bgFills[Math.floor(Math.random() * bgFills.length)],
+    cornerRadius: cornerRadii[Math.floor(Math.random() * cornerRadii.length)],
+    panelRadius: panelRadii[Math.floor(Math.random() * panelRadii.length)],
+    fillRatio,
+    showShadow: 'none',
+  };
+};
 
 const formatReceiptDateTime = (date) => ({
   date: date.toLocaleDateString('en-GB', {

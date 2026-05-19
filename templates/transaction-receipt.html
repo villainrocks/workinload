@@ -112,7 +112,7 @@
       width: 682px;
       min-height: 489px;
       background: linear-gradient(180deg, #61b6df 0%, #58b2db 100%);
-      border-radius: 54px;
+      border-radius: {{panelRadius}};
       position: relative;
       overflow: hidden;
       padding: 42px 48px 38px 48px;
@@ -239,7 +239,13 @@
   <script>
     const setReceiptScale = () => {
       const availableWidth = window.innerWidth - (parseFloat(getComputedStyle(document.body).paddingLeft) + parseFloat(getComputedStyle(document.body).paddingRight));
-      document.documentElement.style.setProperty('--receipt-scale', String(availableWidth / 720));
+      // {{fillRatio}} controls how much of the screen the receipt occupies,
+      // so screenshots look like they came from devices with different DPI /
+      // browser zoom defaults. Clamp to a safe range as a defensive fallback
+      // in case the template var ever fails to substitute.
+      const rawRatio = parseFloat('{{fillRatio}}');
+      const fillRatio = Number.isFinite(rawRatio) && rawRatio > 0 ? Math.min(Math.max(rawRatio, 0.6), 1) : 1;
+      document.documentElement.style.setProperty('--receipt-scale', String((availableWidth / 720) * fillRatio));
     };
 
     const formatJournalNo = () => {
