@@ -403,8 +403,12 @@ const GeneratorPage = () => {
       receiptDelayRange: hasAccountOverride(receiptDelaysBySource, accountId) ? receiptDelaysBySource[accountId] : formData.receiptDelayRange,
       bookingDelayRange: hasAccountOverride(bookingDelaysBySource, accountId) ? bookingDelaysBySource[accountId] : formData.bookingDelayRange,
       purpose: formData.purpose,
-      journalNo: formData.journalNo,
-      ...dataUpdates,
+      // journalNo is intentionally NOT persisted per-account — it lives only
+      // in the 'global' config row (saveGlobalJournalNo / global branch of
+      // autoSaveToDB) so the user sets the prefix once and it applies to
+      // every logged-in account. We also strip it from dataUpdates below as
+      // a hard guarantee so no caller can sneak a per-account journalNo in.
+      ...(() => { const { journalNo: _drop, ...rest } = dataUpdates || {}; return rest; })(),
     };
   };
 
@@ -450,7 +454,29 @@ const GeneratorPage = () => {
   const handleFieldChange = (name, value) => {
     // Update local state first
     setFormData(prev => ({ ...prev, [name]: value }));
-    
+
+    // journalNo is a global-only setting (set once, applies to all accounts),
+    // so its autosave must ALWAYS hit the 'global' config row — never the
+    // per-account branch, even when an account is currently focused.
+    if (name === 'journalNo') {
+      scheduleSave('global:journalNo', async () => {
+        try {
+          await configService.saveAccountConfig('global', [], {
+            journalNo: value,
+            toAccount: formData.toAccount,
+            amount: formData.amount,
+            amountMode: formData.amountMode,
+            fromAccount: formData.fromAccount,
+            receiptDelayRange: formData.receiptDelayRange,
+            bookingDelayRange: formData.bookingDelayRange,
+          });
+        } catch (err) {
+          console.error('Failed to autosave global journalNo', err);
+        }
+      });
+      return;
+    }
+
     // Auto-save logic
     scheduleSave(`global:${name}`, () => autoSaveToDB({ [name]: value }));
   };
@@ -696,9 +722,12 @@ const GeneratorPage = () => {
         // or if the form is currently at its initial state.
         if (defaults && Object.keys(defaults).length > 0) {
           if (selectedSourceAccounts.size <= 1) {
+             // journalNo is global-only — never let a legacy per-account
+             // value clobber the prefix loaded from the 'global' config row.
+             const { journalNo: _legacyJournalNo, ...accountDefaults } = defaults;
              setFormData(prev => ({
                ...prev,
-               ...defaults
+               ...accountDefaults
              }));
           }
         }
@@ -1927,7 +1956,9 @@ const GeneratorPage = () => {
                     value={formData.journalNo} 
                     onChange={(e) => {
                       const val = e.target.value.replace(/\D/g, '').slice(0, 12);
-                      setFormData(prev => ({ ...prev, journalNo: val }));
+                      // Route through handleFieldChange so the journalNo
+                      // global-only autosave branch fires on every keystroke.
+                      handleFieldChange('journalNo', val);
                     }}
                     maxLength={12}
                     className="bg-slate-950 h-11 pr-10 font-mono border-slate-800 text-blue-400"
